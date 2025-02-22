@@ -1,49 +1,40 @@
 import React, { useState, useEffect } from "react";
-import { MaterialIcons } from "@expo/vector-icons"; // Import the icon library
+import { MaterialIcons } from "@expo/vector-icons";
 import {
   View,
-  TextInput,
-  Button,
   StyleSheet,
   SafeAreaView,
   Text,
   TouchableOpacity,
 } from "react-native";
+import { WebView } from "react-native-webview";
 import * as SecureStore from "expo-secure-store";
 
 const Form = ({ navigation }) => {
-  const [wifiSSID, setWifiSSID] = useState("");
-  const [wifiPassword, setWifiPassword] = useState("");
-  const [mqttServer, setMqttServer] = useState("");
-  const [mqttPort, setMqttPort] = useState("");
-  const [mqttUser, setMqttUser] = useState("");
-  const [mqttPassword, setMqttPassword] = useState("");
   const [savedData, setSavedData] = useState(null);
+  const [webViewLoaded, setWebViewLoaded] = useState(false);
+  const [showTimeoutMessage, setShowTimeoutMessage] = useState(false);
 
   useEffect(() => {
     const fetchSavedData = async () => {
       const config = await SecureStore.getItemAsync("config");
+      console.log("Fetched config from SecureStore:", config); // Debugging
       if (config) {
         setSavedData(JSON.parse(config));
+      } else {
+        console.log("No config found, showing WebView immediately"); // Debugging
+        // Set a timeout to show a message if the WebView doesn't load in 5 seconds
+        const timeout = setTimeout(() => {
+          if (!webViewLoaded) {
+            setShowTimeoutMessage(true);
+          }
+        }, 5000); // 5-second timeout
+        return () => clearTimeout(timeout); // Cleanup timeout
       }
     };
 
     fetchSavedData();
-  }, []);
-
-  const handleSubmit = async () => {
-    const data = {
-      wifiSSID,
-      wifiPassword,
-      mqttServer,
-      mqttPort,
-      mqttUser,
-      mqttPassword,
-    };
-
-    await SecureStore.setItemAsync("config", JSON.stringify(data));
-    navigation.replace("Control");
-  };
+  }, [webViewLoaded]);
 
   const handleDelete = async () => {
     // Delete the saved data
@@ -53,76 +44,80 @@ const Form = ({ navigation }) => {
     setSavedData(null);
   };
 
-  return (
-    <SafeAreaView style={styles.container}>
-      <Text style={styles.header}>BeeGreen</Text>
-       {/* Display Saved Data */}
-       {savedData && (
-        <View style={styles.savedDataContainer}>
-          <TouchableOpacity style={styles.deleteButton} onPressIn={handleDelete}>
-              <MaterialIcons name="delete" size={24} color="red" />
-          </TouchableOpacity>
-          <Text style={styles.savedDataText}>
-            <Text style={styles.label}>WiFi SSID:</Text> {savedData.wifiSSID}
-          </Text>
-          <Text style={styles.savedDataText}>
-            <Text style={styles.label}>MQTT Server:</Text> {savedData.mqttServer}
-          </Text>
-          <Text style={styles.savedDataText}>
-            <Text style={styles.label}>MQTT Port:</Text> {savedData.mqttPort}
-          </Text>
-          <Text style={styles.savedDataText}>
-            <Text style={styles.label}>MQTT Username:</Text> {savedData.mqttUser}
-          </Text>
-        </View>
-      )}
+  const handleWebViewMessage = async (event) => {
+    console.log("Received message from WebView:", event.nativeEvent.data); // Debugging
+    const formData = new URLSearchParams(event.nativeEvent.data);
+    const config = {
+      wifiSSID: formData.get("s"),
+      wifiPassword: formData.get("p"),
+      mqttServer: formData.get("mqtt_server"),
+      mqttPort: formData.get("mqtt_port"),
+      mqttUser: formData.get("username"),
+      mqttPassword: formData.get("password"),
+    };
 
-    {!savedData && (
-      <View style={styles.formContainer}>
-        <TextInput
-          placeholder="WiFi SSID"
-          value={wifiSSID}
-          onChangeText={setWifiSSID}
-          style={styles.input}
-        />
-        <TextInput
-          placeholder="WiFi Password"
-          value={wifiPassword}
-          onChangeText={setWifiPassword}
-          secureTextEntry
-          style={styles.input}
-        />
-        <TextInput
-          placeholder="MQTT Server"
-          value={mqttServer}
-          onChangeText={setMqttServer}
-          style={styles.input}
-        />
-        <TextInput
-          placeholder="MQTT Port"
-          value={mqttPort}
-          onChangeText={setMqttPort}
-          keyboardType="numeric"
-          style={styles.input}
-        />
-        <TextInput
-          placeholder="MQTT Username"
-          value={mqttUser}
-          onChangeText={setMqttUser}
-          style={styles.input}
-        />
-        <TextInput
-          placeholder="MQTT Password"
-          value={mqttPassword}
-          onChangeText={setMqttPassword}
-          secureTextEntry
-          style={styles.input}
-        />
-        <View style={styles.buttonContainer}>
-          <Button title="Submit" onPress={handleSubmit} />
+    console.log("Parsed config:", config); // Debugging
+
+    // Save the configuration to SecureStore
+    await SecureStore.setItemAsync("config", JSON.stringify(config));
+    setSavedData(config);
+    console.log("Navigating to Control screen"); // Debugging
+    navigation.replace("Control"); // Navigate to Control page
+  };
+
+  return (
+      savedData ? (
+        <View style={styles.savedDataContainer}>
+          <Text style={styles.savedDataText}>
+            WiFi SSID: {savedData.wifiSSID}
+          </Text>
+          <Text style={styles.savedDataText}>
+            WiFi Password: {savedData.wifiPassword}
+          </Text>
+          <Text style={styles.savedDataText}>
+            MQTT Server: {savedData.mqttServer}
+          </Text>
+          <Text style={styles.savedDataText}>
+            MQTT Port: {savedData.mqttPort}
+          </Text>
+          <Text style={styles.savedDataText}>
+            MQTT User: {savedData.mqttUser}
+          </Text>
+          <Text style={styles.savedDataText}>
+            MQTT Password: {savedData.mqttPassword}
+          </Text>
+          <TouchableOpacity
+            style={styles.deleteButton}
+            onPress={handleDelete}
+          >
+            <MaterialIcons name="delete" size={24} color="red" />
+          </TouchableOpacity>
         </View>
-      </View>)}
-    </SafeAreaView>
+      ) : (
+        <>
+          {showTimeoutMessage && !webViewLoaded ? (
+            <View style={styles.timeoutMessageContainer}>
+              <Text style={styles.timeoutMessageText}>
+                Check if Wi-Fi is connected to BeeGreen...
+              </Text>
+            </View>
+          ) : (
+            <WebView
+              source={{ uri: "http://192.168.4.1/wifi" }}
+              allowsFullscreenVideo={true}
+              javaScriptEnabled={true}
+              domStorageEnabled={true}
+              onMessage={handleWebViewMessage}
+              onError={(error) => console.error("WebView error:", error)} // Debugging
+              onLoadEnd={() => {
+                console.log("WebView loaded"); // Debugging
+                setWebViewLoaded(true); // Mark WebView as loaded
+              }}
+            />
+          )}
+        </>
+      )
+    
   );
 };
 
@@ -139,20 +134,6 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     fontWeight: "bold",
   },
-  formContainer: {
-    width: "80%",
-  },
-  input: {
-    backgroundColor: "#fff",
-    padding: 10,
-    width: "100%",
-    marginTop: 15,
-    color: "#000",
-  },
-  buttonContainer: {
-    marginTop: 20,
-    width: "100%",
-  }, 
   savedDataContainer: {
     marginTop: 30,
     width: "80%",
@@ -170,7 +151,22 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 10,
     right: 10,
-},
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  timeoutMessageContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  timeoutMessageText: {
+    fontSize: 18,
+    color: "#fff",
+    textAlign: "center",
+  },
 });
 
 export default Form;
