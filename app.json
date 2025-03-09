@@ -13,6 +13,12 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        },
+        "ITSAppUsesNonExemptEncryption": false
+      },
       "supportsTablet": true,
       "bundleIdentifier": "com.sayanpaul.beegreen"
     },
@@ -28,11 +34,14 @@
     },
     "plugins": [
       "expo-secure-store",
-      ["expo-build-properties", {
-        "android": {
-          "usesCleartextTraffic": true
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
         }
-      }]
+      ]
     ],
     "extra": {
       "eas": {

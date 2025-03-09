@@ -1,24 +1,25 @@
 import React, { useEffect, useState } from "react";
 import { NavigationContainer } from "@react-navigation/native";
-import { createStackNavigator } from "@react-navigation/stack";
+import { createDrawerNavigator } from "@react-navigation/drawer";
 import * as SecureStore from "expo-secure-store";
 import { MaterialIcons } from "@expo/vector-icons";
-import Form from "../components/Form";
+import DevicePage from "../components/DevicePage";
 import SchedulerPage from "../components/SchedulerPage";
+import ControlPage from "../components/ControlPage";
 import TimelinePage from "../components/TimelinePage";
-import LoginPage from "../components/LoginPage"; // Import LoginPage
+import AccountInfoPage from "../components/AccountInfoPage";
 
-const Stack = createStackNavigator();
+const Drawer = createDrawerNavigator();
 
 const AppNavigator = () => {
   const [isReady, setIsReady] = useState(false);
-  const [initialRoute, setInitialRoute] = useState("Login"); // Default to Login
+  const [initialRoute, setInitialRoute] = useState("Device");
 
   useEffect(() => {
     const checkConfig = async () => {
       const config = await SecureStore.getItemAsync("config");
       if (config) {
-        setInitialRoute("Control"); // Navigate to Control if config exists
+        setInitialRoute("Device"); // Default to Device Page
       }
       setIsReady(true);
     };
@@ -32,73 +33,53 @@ const AppNavigator = () => {
 
   return (
     <NavigationContainer>
-      <Stack.Navigator initialRouteName={initialRoute}>
-        <Stack.Screen
-          name="Login"
-          component={LoginPage}
-          options={{ headerShown: false }} // Hide header for Login Page
-        />
-        <Stack.Screen
-          name="Form"
-          component={Form}
-          options={({ navigation }) => ({
-            headerShown: true,
-            headerTitle: "BeeGreen",
-            headerLeft: () => (
-              <MaterialIcons
-                name="menu"
-                size={24}
-                color="black"
-                style={{ marginLeft: 15 }}
-                onPress={() => navigation.navigate("Control")}
-              />
+      <Drawer.Navigator initialRouteName={initialRoute}>
+        <Drawer.Screen
+          name="Device"
+          component={DevicePage}
+          options={{
+            drawerIcon: ({ color, size }) => (
+              <MaterialIcons name="devices" size={size} color={color} />
             ),
-          })}
+          }}
         />
-        <Stack.Screen
-          name="Control"
+        <Drawer.Screen
+          name="Scheduler"
           component={SchedulerPage}
-          options={({ navigation }) => ({
-            headerShown: true,
-            headerTitle: "BeeGreen",
-            headerLeft: () => (
-              <MaterialIcons
-                name="arrow-back"
-                size={24}
-                color="black"
-                style={{ marginLeft: 15 }}
-                onPress={() => navigation.navigate("Form")}
-              />
+          options={{
+            drawerIcon: ({ color, size }) => (
+              <MaterialIcons name="schedule" size={size} color={color} />
             ),
-            headerRight: () => (
-              <MaterialIcons
-                name="timeline"
-                size={24}
-                color="black"
-                style={{ marginRight: 15 }}
-                onPress={() => navigation.navigate("Timeline")}
-              />
-            ),
-          })}
+          }}
         />
-        <Stack.Screen
+        <Drawer.Screen
+          name="Control"
+          component={ControlPage}
+          options={{
+            drawerIcon: ({ color, size }) => (
+              <MaterialIcons name="settings" size={size} color={color} />
+            ),
+          }}
+        />
+        <Drawer.Screen
           name="Timeline"
           component={TimelinePage}
-          options={({ navigation }) => ({
-            headerShown: true,
-            headerTitle: "Timeline",
-            headerLeft: () => (
-              <MaterialIcons
-                name="arrow-back"
-                size={24}
-                color="black"
-                style={{ marginLeft: 15 }}
-                onPress={() => navigation.navigate("Control")}
-              />
+          options={{
+            drawerIcon: ({ color, size }) => (
+              <MaterialIcons name="timeline" size={size} color={color} />
             ),
-          })}
+          }}
         />
-      </Stack.Navigator>
+        <Drawer.Screen
+          name="Account Info"
+          component={AccountInfoPage}
+          options={{
+            drawerIcon: ({ color, size }) => (
+              <MaterialIcons name="account-circle" size={size} color={color} />
+            ),
+          }}
+        />
+      </Drawer.Navigator>
     </NavigationContainer>
   );
 };
