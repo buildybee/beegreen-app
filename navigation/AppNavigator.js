@@ -4,7 +4,7 @@ import { createStackNavigator } from "@react-navigation/stack";
 import * as SecureStore from "expo-secure-store";
 import { MaterialIcons } from "@expo/vector-icons";
 import Form from "../components/Form";
-import ControlPage from "../components/ControlPage";
+import SchedulerPage from "../components/SchedulerPage";
 import TimelinePage from "../components/TimelinePage";
 import LoginPage from "../components/LoginPage"; // Import LoginPage
 
@@ -57,7 +57,7 @@ const AppNavigator = () => {
         />
         <Stack.Screen
           name="Control"
-          component={ControlPage}
+          component={SchedulerPage}
           options={({ navigation }) => ({
             headerShown: true,
             headerTitle: "BeeGreen",

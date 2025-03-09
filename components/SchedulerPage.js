@@ -11,7 +11,7 @@ import * as SecureStore from "expo-secure-store";
 import Paho from "paho-mqtt";
 import { Picker } from "@react-native-picker/picker";
 
-const ControlPage = ({ navigation }) => {
+const SchedulerPage = ({ navigation }) => {
   const [isRunning, setIsRunning] = useState(false);
   const [selectedTime, setSelectedTime] = useState("00:00"); // For Set Timer
   const [selectedMinutes, setSelectedMinutes] = useState(0); // For Duration (Minutes)
@@ -322,4 +322,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default ControlPage;
+export default SchedulerPage;
