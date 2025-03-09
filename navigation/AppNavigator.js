@@ -5,18 +5,20 @@ import * as SecureStore from "expo-secure-store";
 import { MaterialIcons } from "@expo/vector-icons";
 import Form from "../components/Form";
 import ControlPage from "../components/ControlPage";
+import TimelinePage from "../components/TimelinePage";
+import LoginPage from "../components/LoginPage"; // Import LoginPage
 
 const Stack = createStackNavigator();
 
 const AppNavigator = () => {
   const [isReady, setIsReady] = useState(false);
-  const [initialRoute, setInitialRoute] = useState("Form");
+  const [initialRoute, setInitialRoute] = useState("Login"); // Default to Login
 
   useEffect(() => {
     const checkConfig = async () => {
       const config = await SecureStore.getItemAsync("config");
       if (config) {
-        setInitialRoute("Control");
+        setInitialRoute("Control"); // Navigate to Control if config exists
       }
       setIsReady(true);
     };
@@ -31,6 +33,11 @@ const AppNavigator = () => {
   return (
     <NavigationContainer>
       <Stack.Navigator initialRouteName={initialRoute}>
+        <Stack.Screen
+          name="Login"
+          component={LoginPage}
+          options={{ headerShown: false }} // Hide header for Login Page
+        />
         <Stack.Screen
           name="Form"
           component={Form}
@@ -61,6 +68,32 @@ const AppNavigator = () => {
                 color="black"
                 style={{ marginLeft: 15 }}
                 onPress={() => navigation.navigate("Form")}
+              />
+            ),
+            headerRight: () => (
+              <MaterialIcons
+                name="timeline"
+                size={24}
+                color="black"
+                style={{ marginRight: 15 }}
+                onPress={() => navigation.navigate("Timeline")}
+              />
+            ),
+          })}
+        />
+        <Stack.Screen
+          name="Timeline"
+          component={TimelinePage}
+          options={({ navigation }) => ({
+            headerShown: true,
+            headerTitle: "Timeline",
+            headerLeft: () => (
+              <MaterialIcons
+                name="arrow-back"
+                size={24}
+                color="black"
+                style={{ marginLeft: 15 }}
+                onPress={() => navigation.navigate("Control")}
               />
             ),
           })}

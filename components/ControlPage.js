@@ -30,7 +30,7 @@ const ControlPage = ({ navigation }) => {
 
   // MQTT Configuration
   const mqttPort = 8884; // WebSocket port (default for HiveMQ)
-  const pumpTriggerTopic = "beegreen/pump";
+  const pumpTriggerTopic = "beegreen/pump_trigger";
 
   // Generate time options in 24-hour format
   const generateTimeOptions = () => {

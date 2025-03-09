@@ -19,16 +19,16 @@ const Form = ({ navigation }) => {
   useEffect(() => {
     const fetchSavedData = async () => {
       const config = await SecureStore.getItemAsync("config");
-      console.log("Fetched config from SecureStore:", config); // Debugging
-      if (config) {
-        setSavedData(JSON.parse(config));
+      if (!config) {
+        navigation.replace("Login"); // Redirect to Login if no config
       } else {
-        console.log("No config found, showing WebView immediately"); // Debugging
+        const parsedConfig = JSON.parse(config);
+        setSavedData(parsedConfig);
       }
     };
-
+  
     fetchSavedData();
-  }, []);
+  }, [navigation]);
 
   const handleDelete = async () => {
     // Delete the saved data
@@ -109,22 +109,13 @@ const Form = ({ navigation }) => {
       <SafeAreaView style={styles.container}>
         <View style={styles.savedDataContainer}>
           <Text style={styles.savedDataText}>
-            WiFi SSID: {savedData.wifiSSID}
-          </Text>
-          <Text style={styles.savedDataText}>
-            WiFi Password: {savedData.wifiPassword}
+            MQTT User: {savedData.mqttUser}
           </Text>
           <Text style={styles.savedDataText}>
             MQTT Server: {savedData.mqttServer}
           </Text>
           <Text style={styles.savedDataText}>
             MQTT Port: {savedData.mqttPort}
-          </Text>
-          <Text style={styles.savedDataText}>
-            MQTT User: {savedData.mqttUser}
-          </Text>
-          <Text style={styles.savedDataText}>
-            MQTT Password: {savedData.mqttPassword}
           </Text>
           <TouchableOpacity
             style={styles.deleteButton}
