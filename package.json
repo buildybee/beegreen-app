@@ -15,8 +15,9 @@
     "@react-navigation/drawer": "^7.1.2",
     "@react-navigation/native": "^7.0.14",
     "@react-navigation/stack": "^7.1.1",
-    "expo": "^52.0.31",
+    "expo": "^52.0.37",
     "expo-build-properties": "^0.13.2",
+    "expo-checkbox": "~4.0.1",
     "expo-secure-store": "~14.0.1",
     "expo-status-bar": "~2.0.1",
     "paho-mqtt": "^1.1.0",
@@ -28,8 +29,7 @@
     "react-native-safe-area-context": "5.2.0",
     "react-native-screens": "~4.6.0",
     "react-native-timeline-flatlist": "^0.8.0",
-    "react-native-webview": "^13.13.2",
-    "expo-checkbox": "~4.0.1"
+    "react-native-webview": "^13.13.2"
   },
   "devDependencies": {
     "@babel/core": "^7.26.8"
