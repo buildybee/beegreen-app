@@ -2,9 +2,10 @@ import React, { useState, useEffect } from "react";
 import { View, StyleSheet, SafeAreaView, Text, TextInput, TouchableOpacity } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import * as SecureStore from "expo-secure-store";
+import Paho from "paho-mqtt";
 
 const handleLogin = () => {
-    if (!username || !password || !mqttServer || !mqttPort) {
+    if (!mqttuser || !mqttpassword || !mqttServer || !mqttPort) {
       Alert.alert("Error", "Please fill in all fields.");
       return;
     }
@@ -33,14 +34,7 @@ const handleLogin = () => {
         setIsConnecting(false);
   
         // Save configuration to SecureStore
-        const config = {
-          mqttServer,
-          mqttPort,
-          mqttUser: username,
-          mqttPassword: password,
-          deviceAdded: true, // Set deviceAdded to true
-          schedulerSet: false, // Default to false
-        };
+        
         SecureStore.setItemAsync("config", JSON.stringify(config))
           .then(() => {
             Alert.alert("Success", "Configuration saved successfully.");
@@ -56,8 +50,8 @@ const handleLogin = () => {
         Alert.alert("Error", "Failed to connect to MQTT broker: " + err.errorMessage);
       },
       useSSL: true,
-      userName: username,
-      password: password,
+      mqttUser: username,
+      mqttPassword: password,
     });
   };
 
@@ -87,11 +81,62 @@ const AccountInfoPage = ({ navigation }) => {
 const [mqttUser, setMqttUser] = useState('');
 const [mqttServer, setMqttServer] = useState('');
 const [mqttPort, setMqttPort] = useState('');
+const [mqttPassword, setMqttPassword] = useState('');
 
-const handleSignUp = () => {
-  const newAccount = { mqttUser, mqttServer, mqttPort };
-  setSavedData(newAccount); // Assuming setSavedData updates state/storage
-};
+const handleLogin = () => {
+    if (!mqttUser || !mqttPassword || !mqttServer || !mqttPort) {
+      Alert.alert("Error", "Please fill in all fields.");
+      return;
+    }
+  
+  //  setIsConnecting(true);
+  
+    // Initialize MQTT client
+    const mqttClient = new Paho.Client(
+      mqttServer,
+      Number(mqttPort),
+      "clientId-" + Math.random().toString(16).substr(2, 8)
+    );
+  
+    // Set callback handlers
+    mqttClient.onConnectionLost = (responseObject) => {
+      //setIsConnecting(false);
+      if (responseObject.errorCode !== 0) {
+       // Alert.alert("Error", "Connection lost: " + responseObject.errorMessage);
+		console.log("Connection lost");
+      }
+    };
+  
+    // Connect to the MQTT broker
+    mqttClient.connect({
+      onSuccess: () => {
+        console.log("Connected to MQTT broker");
+       // setIsConnecting(false);
+  
+        // Save configuration to SecureStore
+        
+        SecureStore.setItemAsync("config", JSON.stringify(config))
+          .then(() => {
+           // Alert.alert("Success", "Configuration saved successfully.");
+			console.log("Success", "Configuration saved successfully.");
+            navigation.replace("Control"); // Navigate to Control Page
+          })
+          .catch((error) => {
+            console.error("Error saving configuration:");
+            //Alert.alert("Error", "Failed to save configuration.");
+          });
+      },
+      onFailure: (err) => {
+        //setIsConnecting(false);
+       // Alert.alert("Error", "Failed to connect to MQTT broker: " + err.errorMessage);
+	   console.error("Error saving configuration:");
+      },
+      //useSSL: true,
+      //userName: username,
+      //password: password,
+    });
+  };
+
 
 
   return (
@@ -123,6 +168,12 @@ const handleSignUp = () => {
           value={mqttUser}
           onChangeText={setMqttUser}
         />
+		<TextInput
+          style={styles.input}
+          placeholder="Enter MQTT password"
+          value={mqttPassword}
+          onChangeText={setMqttPassword}
+        />
         <TextInput
           style={styles.input}
           placeholder="Enter MQTT Server"
@@ -136,7 +187,7 @@ const handleSignUp = () => {
           onChangeText={setMqttPort}
           keyboardType="numeric"
         />
-        <TouchableOpacity style={styles.signupButton} onPress={handleSignUp}>
+        <TouchableOpacity style={styles.signupButton} onPress={handleLogin}>
           <Text style={styles.signupButtonText}>Create Account</Text>
         </TouchableOpacity>
       </View>
