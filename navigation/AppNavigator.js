@@ -8,6 +8,7 @@ import SchedulerPage from "../components/SchedulerPage";
 import ControlPage from "../components/ControlPage";
 import TimelinePage from "../components/TimelinePage";
 import AccountInfoPage from "../components/AccountInfoPage";
+import LoginPage from "../components/LoginPage";
 
 const Drawer = createDrawerNavigator();
 
@@ -76,6 +77,15 @@ const AppNavigator = () => {
           options={{
             drawerIcon: ({ color, size }) => (
               <MaterialIcons name="account-circle" size={size} color={color} />
+            ),
+          }}
+        />
+		<Drawer.Screen
+          name="Login"
+          component={LoginPage}
+          options={{
+            drawerIcon: ({ color, size }) => (
+              <MaterialIcons name="login" size={size} color={color} />
             ),
           }}
         />
