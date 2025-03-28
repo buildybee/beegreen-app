@@ -20,14 +20,15 @@
         "ITSAppUsesNonExemptEncryption": false
       },
       "supportsTablet": true,
-      "bundleIdentifier": "com.sayanpaul.beegreen"
+      "bundleIdentifier": "com.buildybee.beegreen"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.sayanpaul.beegreen"
+      "package": "com.buildybee.beegreen",
+	  
     },
     "web": {
       "favicon": "./assets/favicon.png"

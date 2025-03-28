@@ -32,12 +32,13 @@ const ControlPage = ({ navigation }) => {
           mqttClient.onMessageArrived = (message) => {
             if (message.destinationName === "beegreen/status") {
               setPumpStatus(message.payloadString);
+			  console.log(message);
             }
           };
 
           mqttClient.connect({
             onSuccess: () => {
-              mqttClient.subscribe("beegreen/status");
+              mqttClient.subscribe("#");
             },
             useSSL: true,
             userName: parsedConfig.mqttUser,
@@ -51,6 +52,22 @@ const ControlPage = ({ navigation }) => {
 
     fetchSavedData();
   }, []);
+
+  const handleStart = () => {
+    if (client && client.isConnected()) {
+      const message = new Paho.Message("1");
+      message.destinationName = "beegreen/pump_trigger";
+      client.send(message);
+    }
+  };
+
+  const handleStop = () => {
+    if (client && client.isConnected()) {
+      const message = new Paho.Message("0");
+      message.destinationName = "beegreen/pump_trigger";
+      client.send(message);
+    }
+  };
 
   if (!deviceAdded) {
     return <DefaultPage navigation={navigation} />; // Show default page if device is not added

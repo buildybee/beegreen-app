@@ -11,36 +11,61 @@ const DevicePage =  ({ navigation }) => {
   const [isDeviceAdded, setIsDeviceAdded] = useState(false);
   const [client, setClient] = useState(null);
   const [deviceAdded, setDeviceAdded] = useState(false);
+  const [mqttUser, setMqttUser] = useState('');
+  const [mqttServer, setMqttServer] = useState('');
+  const [mqttPort, setMqttPort] = useState('');
+  const [mqttPassword, setMqttPassword] = useState('');
 
 
   useEffect(() => {
     const fetchSavedData = async () => {
       const config = await SecureStore.getItemAsync("config");
       if (config) {
+		  console.log(config);
         const parsedConfig = JSON.parse(config);
         setDeviceAdded(parsedConfig.deviceAdded || false);
         if (parsedConfig.deviceAdded) {
+			console.log("Device added.......Device page");
         // Initialize MQTT client
-        const mqttClient = new Paho.Client(
-          parsedConfig.mqttServer,
-          Number(parsedConfig.mqttPort),
-          "clientId-" + Math.random().toString(16).substr(2, 8)
+			const mqttClient = new Paho.Client(
+			parsedConfig.mqttServer,
+			Number(parsedConfig.mqttPort),
+			"clientId-" + Math.random().toString(16).substr(2, 8)
         );
 
-        mqttClient.onMessageArrived = (message) => {
-          const data = JSON.parse(message.payloadString);
-          setFirmwareVersion(data.firmwareVersion);
-        };
+		console.log("mqtt client created.........");
+
+		mqttClient.onMessageArrived = (message) => {
+            if (message.destinationName === "beegreen/status") {
+              const data = JSON.parse(message.payloadString);
+			 // setFirmwareVersion(data.firmwareVersion);
+			  console.log("onMessageArrived section.........");
+		      console.log(data);
+            }
+          };
+       
 
         mqttClient.connect({
           onSuccess: () => {
-            mqttClient.subscribe("/heartbeat");
+			  console.log("mqtt on device connected");
+            mqttClient.subscribe("#");
           },
           useSSL: true,
-          userName: parsedConfig.mqttUser,
-          password: parsedConfig.mqttPassword,
+          mqttUser: parsedConfig.mqttUser,
+          mqttPassword: parsedConfig.mqttPassword,
+		  deviceAdded: parsedConfig.deviceAdded,
+		  firmwareVersion: data.firmwareVersion,
+		  
         });
-
+		
+		
+		 mqttClient.onMessageArrived = (message) => {
+          const data = JSON.parse(message.payloadString);
+          setFirmwareVersion(data.firmwareVersion);
+		  console.log("onMessageArrived section.........");
+		  console.log(data);
+        };
+		
         setClient(mqttClient);
       }
     }
@@ -55,10 +80,10 @@ const DevicePage =  ({ navigation }) => {
   
   return (
     <SafeAreaView style={styles.container}>
-      {isDeviceAdded ? (
+      {deviceAdded ? (
         <View style={styles.content}>
           <Text style={styles.title}>Firmware Version:</Text>
-          <Text style={styles.version}>{firmwareVersion || "Loading..."}</Text>
+	  <Text style={styles.version}>{firmwareVersion}</Text>
         </View>
       ) : (
         <View style={styles.placeholder}>
