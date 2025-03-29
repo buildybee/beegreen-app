@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { View, Text, StyleSheet, SafeAreaView, Button } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import Checkbox from "expo-checkbox";
@@ -8,10 +8,14 @@ import DefaultPage from "./DefaultPage"; // Import DefaultPage
 
 const ControlPage = ({ navigation }) => {
   const [deviceAdded, setDeviceAdded] = useState(false);
+  const [isRunning, setIsRunning] = useState(false);
   const [schedulerSet, setSchedulerSet] = useState(false);
   const [pumpStatus, setPumpStatus] = useState("off");
   const [runForInterval, setRunForInterval] = useState(false);
   const [client, setClient] = useState(null);
+  const pumpTriggerTopic = "beegreen/pump_trigger";
+ // const [timeout, setTimeout] = useState("5000");
+  const timerRef = useRef(null);
 
   useEffect(() => {
     const fetchSavedData = async () => {
@@ -48,24 +52,45 @@ const ControlPage = ({ navigation }) => {
           setClient(mqttClient);
         }
       }
+	  if (timerRef.current) {
+      clearTimeout(timerRef.current);
+    }
     };
 
     fetchSavedData();
   }, []);
+ 
+  const handleStartStop = () => {
+    const newState = !isRunning;
+	
+	 if (timerRef.current) {
+    clearTimeout(timerRef.current);
+    timerRef.current = null;
+  }
+    setIsRunning(newState);
+	setPumpStatus(newState ? "ON" : "OFF");	
 
-  const handleStart = () => {
+    // Publish message to MQTT topic
     if (client && client.isConnected()) {
-      const message = new Paho.Message("1");
-      message.destinationName = "beegreen/pump_trigger";
+      const message = new Paho.Message(newState ? "1" : "0");
+      message.destinationName = pumpTriggerTopic;
       client.send(message);
+      console.log(`Published: ${newState ? "Start" : "Stop"}`);
+	 // setPumpStatus(newState ? "ON" : "OFF");
+	  if (newState && runForInterval) {
+		
+      timerRef.current = setTimeout(() => {
+        setIsRunning(false);
+        setPumpStatus("OFF");
+		console.log("State is ON, run for interval is selected.");
+        const stopMessage = new Paho.Message("0");
+        stopMessage.destinationName = pumpTriggerTopic;
+        client.send(stopMessage);
+        console.log("Automatically stopped after 5 seconds");
+      }, 5000); // 5 seconds
     }
-  };
-
-  const handleStop = () => {
-    if (client && client.isConnected()) {
-      const message = new Paho.Message("0");
-      message.destinationName = "beegreen/pump_trigger";
-      client.send(message);
+    } else {
+      console.error("MQTT client is not connected...");
     }
   };
 
@@ -76,14 +101,17 @@ const ControlPage = ({ navigation }) => {
   return (
     <SafeAreaView style={styles.container}>
       <Text style={styles.title}>Pump Status: {pumpStatus}</Text>
-      <Button title="Start" onPress={handleStart} />
-      <Button title="Stop" onPress={handleStop} />
+      <Button
+        title={isRunning ? "Stop" : "Start"}
+        onPress={handleStartStop}
+        color={isRunning ? "red" : "green"}
+      />
       <View style={styles.checkboxContainer}>
         <Checkbox
           value={runForInterval}
           onValueChange={setRunForInterval}
         />
-        <Text style={styles.checkboxLabel}>Run for predefined interval</Text>
+        <Text style={styles.checkboxLabel}>Run for 5 seconds interval</Text>
       </View>
     </SafeAreaView>
   );
