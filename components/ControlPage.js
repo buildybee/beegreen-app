@@ -12,6 +12,7 @@ const ControlPage = ({ navigation }) => {
   const [schedulerSet, setSchedulerSet] = useState(false);
   const [pumpStatus, setPumpStatus] = useState("off");
   const [runForInterval, setRunForInterval] = useState(false);
+  const [isOnline, setIsOnline] = useState(false);
   const [client, setClient] = useState(null);
   const pumpTriggerTopic = "beegreen/pump_trigger";
  // const [timeout, setTimeout] = useState("5000");
@@ -25,7 +26,7 @@ const ControlPage = ({ navigation }) => {
         setDeviceAdded(parsedConfig.deviceAdded || false);
         setSchedulerSet(parsedConfig.schedulerSet || false);
 
-        if (parsedConfig.deviceAdded) {
+        if (parsedConfig.mqttServer) {
           // Initialize MQTT client
           const mqttClient = new Paho.Client(
             parsedConfig.mqttServer,
@@ -43,7 +44,12 @@ const ControlPage = ({ navigation }) => {
           mqttClient.connect({
             onSuccess: () => {
               mqttClient.subscribe("#");
-            },
+           setIsOnline(true);
+        },
+        onFailure: (err) => {
+          console.error("Failed to connect to MQTT broker", err);
+          setIsOnline(false);
+        },
             useSSL: true,
             userName: parsedConfig.mqttUser,
             password: parsedConfig.mqttPassword,
@@ -94,18 +100,28 @@ const ControlPage = ({ navigation }) => {
     }
   };
 
-  if (!deviceAdded) {
-    return <DefaultPage navigation={navigation} />; // Show default page if device is not added
-  }
+ // if (!deviceAdded) {
+ //   return <DefaultPage navigation={navigation} />; // Show default page if device is not added
+ // }
 
   return (
     <SafeAreaView style={styles.container}>
+	<Text style={styles.header}>{isOnline ? "BeeGreen is ready" : "Wait until device status is online"}</Text>
+      {/* Online/Offline Indicator */}
+      <View style={styles.statusContainer}>
+        <Text style={styles.statusText}>
+          Device Status: {isOnline ? "Online" : "Offline"}
+        </Text>
+        
+      </View>
       <Text style={styles.title}>Pump Status: {pumpStatus}</Text>
-      <Button
+      
+	   <Button
         title={isRunning ? "Stop" : "Start"}
         onPress={handleStartStop}
         color={isRunning ? "red" : "green"}
-      />
+       />
+	   
       <View style={styles.checkboxContainer}>
         <Checkbox
           value={runForInterval}
@@ -136,6 +152,26 @@ const styles = StyleSheet.create({
   checkboxLabel: {
     fontSize: 16,
     marginLeft: 10,
+  },
+  statusText: {
+    fontSize: 20,
+    color: "ffff",
+  },
+  statusLight: {
+    width: 40,
+    height: 40,
+    borderRadius: 40,
+    marginTop: 10,
+  },
+  statusContainer: {
+    marginTop: -10,
+    alignItems: "center",
+  },
+  header: {
+    fontSize: 10,
+    color: "ffff",
+    marginBottom: 20,
+    fontWeight: "bold",
   },
 });
 

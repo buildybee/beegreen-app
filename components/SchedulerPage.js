@@ -168,8 +168,21 @@ const SchedulerPage = ({ navigation }) => {
   };
 
   const handleSetDuration = () => {
-    const duration = `${String(selectedMinutes).padStart(2, "0")}:${String(selectedSeconds).padStart(2, "0")}`;
-    Alert.alert("Duration Set", `Duration set to ${duration}`);
+	  console.log("time selected : ", selectedTime);
+	  console.log("duration selected ", (selectedMinutes*60 + selectedSeconds));
+	  console.log("interval selected ", (intervalMinutes + intervalHours*60));
+	  
+	  const timeofday = selectedTime;
+	  const duration = (selectedMinutes*60 + selectedSeconds);
+	  const interval = (intervalMinutes + intervalHours*60);
+   // const duration = `${String(selectedMinutes).padStart(2, "0")}:${String(selectedSeconds).padStart(2, "0")}`;
+	const schedule = `${selectedTime}:${(selectedMinutes*60 + selectedSeconds)}:${(intervalMinutes + intervalHours*60)}`;
+   Alert.alert("Duration Set", `Duration set to ${duration}`);
+   console.log("sending the set schedule as ",schedule)
+   // Alert.alert("Pump will run for ", `${duration}`, "secs every ", `${interval}`,  " starting on ", `${timeofday}` );
+   const message = new Paho.Message(schedule);
+      message.destinationName = "beegreen/set_Schedule";
+      client.send(message);
   };
 
   const handleSetInterval = (value) => {
@@ -258,11 +271,11 @@ const SchedulerPage = ({ navigation }) => {
       </View>
 
       {/* Start/Stop Button */}
-      <Button
+     /* <Button
         title={isRunning ? "Stop" : "Start"}
         onPress={handleStartStop}
         color={isRunning ? "red" : "green"}
-      />
+      /> */
     </SafeAreaView>
   );
 };

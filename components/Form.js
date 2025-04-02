@@ -28,7 +28,7 @@ const Form = ({ navigation }) => {
     };
   
     fetchSavedData();
-  }, [navigation]);
+  }, [navigation]); 
 
   const handleDelete = async () => {
     // Delete the saved data

@@ -3,7 +3,8 @@ import { View, StyleSheet, SafeAreaView, Text, TextInput, TouchableOpacity, Aler
 import { MaterialIcons } from "@expo/vector-icons";
 import * as SecureStore from "expo-secure-store";
 import Paho from "paho-mqtt";
-import ControlPage from "../components/ControlPage";
+import ControlPage from "./ControlPage";
+
 
 const LoginPage = ({ navigation }) => {
 	const [mqttUser, setMqttUser] = useState('');
@@ -61,14 +62,14 @@ const handleLogin = () => {
           mqttPort,
           mqttUser,
           mqttPassword,
-          deviceAdded: true, // Set deviceAdded to true
+          deviceAdded: false, // Set deviceAdded to true
           schedulerSet: false, // Default to false
         };
 		console.log(config);
         SecureStore.setItemAsync("config", JSON.stringify(config))
           .then(() => {
             Alert.alert("Success", "Configuration saved successfully.");
-            //navigation.replace("ControlPage"); // Navigate to Control Page
+            return <ControlPage navigation={navigation} />; // Navigate to Control Page	
           })
           .catch((error) => {
             console.error("Error saving configuration:", error);

@@ -15,12 +15,17 @@ const Drawer = createDrawerNavigator();
 const AppNavigator = () => {
   const [isReady, setIsReady] = useState(false);
   const [initialRoute, setInitialRoute] = useState("Device");
+  const [hasAccount, setHasAccount] = useState(false);
 
   useEffect(() => {
     const checkConfig = async () => {
       const config = await SecureStore.getItemAsync("config");
       if (config) {
+        setHasAccount(true);
         setInitialRoute("Device"); // Default to Device Page
+      } else {
+        setHasAccount(false);
+        setInitialRoute("Login"); // Show Login if no account
       }
       setIsReady(true);
     };
@@ -35,60 +40,65 @@ const AppNavigator = () => {
   return (
     <NavigationContainer>
       <Drawer.Navigator initialRouteName={initialRoute}>
-        <Drawer.Screen
-          name="Device"
-          component={DevicePage}
-          options={{
-            drawerIcon: ({ color, size }) => (
-              <MaterialIcons name="devices" size={size} color={color} />
-            ),
-          }}
-        />
-        <Drawer.Screen
-          name="Scheduler"
-          component={SchedulerPage}
-          options={{
-            drawerIcon: ({ color, size }) => (
-              <MaterialIcons name="schedule" size={size} color={color} />
-            ),
-          }}
-        />
-        <Drawer.Screen
-          name="Control"
-          component={ControlPage}
-          options={{
-            drawerIcon: ({ color, size }) => (
-              <MaterialIcons name="settings" size={size} color={color} />
-            ),
-          }}
-        />
-        <Drawer.Screen
-          name="Timeline"
-          component={TimelinePage}
-          options={{
-            drawerIcon: ({ color, size }) => (
-              <MaterialIcons name="timeline" size={size} color={color} />
-            ),
-          }}
-        />
-        <Drawer.Screen
-          name="Account Info"
-          component={AccountInfoPage}
-          options={{
-            drawerIcon: ({ color, size }) => (
-              <MaterialIcons name="account-circle" size={size} color={color} />
-            ),
-          }}
-        />
-		<Drawer.Screen
-          name="Login"
-          component={LoginPage}
-          options={{
-            drawerIcon: ({ color, size }) => (
-              <MaterialIcons name="login" size={size} color={color} />
-            ),
-          }}
-        />
+        {hasAccount ? (
+          <>
+            <Drawer.Screen
+              name="Device"
+              component={DevicePage}
+              options={{
+                drawerIcon: ({ color, size }) => (
+                  <MaterialIcons name="devices" size={size} color={color} />
+                ),
+              }}
+            />
+            <Drawer.Screen
+              name="Scheduler"
+              component={SchedulerPage}
+              options={{
+                drawerIcon: ({ color, size }) => (
+                  <MaterialIcons name="schedule" size={size} color={color} />
+                ),
+              }}
+            />
+            <Drawer.Screen
+              name="Control"
+              component={ControlPage}
+              options={{
+                drawerIcon: ({ color, size }) => (
+                  <MaterialIcons name="settings" size={size} color={color} />
+                ),
+              }}
+            />
+            <Drawer.Screen
+              name="Timeline"
+              component={TimelinePage}
+              options={{
+                drawerIcon: ({ color, size }) => (
+                  <MaterialIcons name="timeline" size={size} color={color} />
+                ),
+              }}
+            />
+            <Drawer.Screen
+              name="Account Info"
+              component={AccountInfoPage}
+              options={{
+                drawerIcon: ({ color, size }) => (
+                  <MaterialIcons name="account-circle" size={size} color={color} />
+                ),
+              }}
+            />
+          </>
+        ) : (
+          <Drawer.Screen
+            name="Login"
+            component={LoginPage}
+            options={{
+              drawerIcon: ({ color, size }) => (
+                <MaterialIcons name="login" size={size} color={color} />
+              ),
+            }}
+          />
+        )}
       </Drawer.Navigator>
     </NavigationContainer>
   );
