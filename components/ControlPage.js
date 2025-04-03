@@ -120,6 +120,7 @@ const ControlPage = ({ navigation }) => {
         title={isRunning ? "Stop" : "Start"}
         onPress={handleStartStop}
         color={isRunning ? "red" : "green"}
+		
        />
 	   
       <View style={styles.checkboxContainer}>
@@ -168,8 +169,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   header: {
-    fontSize: 10,
-    color: "ffff",
+    fontSize: 15,
+    color: "green",
     marginBottom: 20,
     fontWeight: "bold",
   },

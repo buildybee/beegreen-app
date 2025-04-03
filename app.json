@@ -27,8 +27,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.buildybee.beegreen",
-	  
+      "package": "com.buildybee.beegreen"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -46,8 +45,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "b06677ad-7fba-4744-b017-be8e9ab542aa"
+        "projectId": "4e173f75-48b6-498a-b067-0a6eea96a107"
       }
-    }
+    },
+    "owner": "buildybee"
   }
 }

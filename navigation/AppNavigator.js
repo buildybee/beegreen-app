@@ -14,7 +14,7 @@ const Drawer = createDrawerNavigator();
 
 const AppNavigator = () => {
   const [isReady, setIsReady] = useState(false);
-  const [initialRoute, setInitialRoute] = useState("Device");
+  const [initialRoute, setInitialRoute] = useState("Control");
   const [hasAccount, setHasAccount] = useState(false);
 
   useEffect(() => {
@@ -22,7 +22,7 @@ const AppNavigator = () => {
       const config = await SecureStore.getItemAsync("config");
       if (config) {
         setHasAccount(true);
-        setInitialRoute("Device"); // Default to Device Page
+        setInitialRoute("Control"); // Default to Device Page
       } else {
         setHasAccount(false);
         setInitialRoute("Login"); // Show Login if no account
@@ -42,15 +42,7 @@ const AppNavigator = () => {
       <Drawer.Navigator initialRouteName={initialRoute}>
         {hasAccount ? (
           <>
-            <Drawer.Screen
-              name="Device"
-              component={DevicePage}
-              options={{
-                drawerIcon: ({ color, size }) => (
-                  <MaterialIcons name="devices" size={size} color={color} />
-                ),
-              }}
-            />
+           
             <Drawer.Screen
               name="Scheduler"
               component={SchedulerPage}

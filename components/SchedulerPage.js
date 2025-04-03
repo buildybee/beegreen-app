@@ -181,7 +181,7 @@ const SchedulerPage = ({ navigation }) => {
    console.log("sending the set schedule as ",schedule)
    // Alert.alert("Pump will run for ", `${duration}`, "secs every ", `${interval}`,  " starting on ", `${timeofday}` );
    const message = new Paho.Message(schedule);
-      message.destinationName = "beegreen/set_Schedule";
+      message.destinationName = "beegreen/set_schedule";
       client.send(message);
   };
 
@@ -270,12 +270,7 @@ const SchedulerPage = ({ navigation }) => {
         <Button title="Set Schedule" onPress={handleSetDuration} />
       </View>
 
-      {/* Start/Stop Button */}
-     /* <Button
-        title={isRunning ? "Stop" : "Start"}
-        onPress={handleStartStop}
-        color={isRunning ? "red" : "green"}
-      /> */
+   
     </SafeAreaView>
   );
 };

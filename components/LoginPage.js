@@ -68,7 +68,7 @@ const handleLogin = () => {
 		console.log(config);
         SecureStore.setItemAsync("config", JSON.stringify(config))
           .then(() => {
-            Alert.alert("Success", "Configuration saved successfully.");
+            Alert.alert("Success", "Configuration saved successfully.", "Kindly close this app and reopen");
             return <ControlPage navigation={navigation} />; // Navigate to Control Page	
           })
           .catch((error) => {
@@ -167,6 +167,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     padding: 10,
     borderRadius: 5,
+	color: 'white',
   },
   signupButton: {
     backgroundColor: 'blue',
@@ -176,6 +177,11 @@ const styles = StyleSheet.create({
   signupButtonText: {
     color: 'white',
     fontWeight: 'bold',
+  },
+  signupText: {
+    color: 'white',
+    fontWeight: 'bold',
+	fontSize: 30,
   },
 });
 
