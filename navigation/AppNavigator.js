@@ -3,7 +3,7 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createDrawerNavigator } from "@react-navigation/drawer";
 import * as SecureStore from "expo-secure-store";
 import { MaterialIcons } from "@expo/vector-icons";
-import DevicePage from "../components/DevicePage";
+//import DevicePage from "../components/DevicePage";
 import SchedulerPage from "../components/SchedulerPage";
 import ControlPage from "../components/ControlPage";
 import TimelinePage from "../components/TimelinePage";

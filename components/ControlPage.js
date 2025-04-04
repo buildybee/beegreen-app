@@ -18,7 +18,15 @@ const ControlPage = ({ navigation }) => {
  // const [timeout, setTimeout] = useState("5000");
   const timerRef = useRef(null);
 
+const [dummy, setDummy] = useState(0);
+
   useEffect(() => {
+	  const intervalId = setInterval(() => {
+    setDummy(prev => prev + 1); // Triggers re-render
+  }, 2000);
+
+  
+  
     const fetchSavedData = async () => {
       const config = await SecureStore.getItemAsync("config");
       if (config) {
@@ -35,10 +43,14 @@ const ControlPage = ({ navigation }) => {
           );
 
           mqttClient.onMessageArrived = (message) => {
-            if (message.destinationName === "beegreen/status") {
+            if (message.destinationName === "beegreen/heartbeat") {
               setPumpStatus(message.payloadString);
 			  console.log(message);
+			  setDeviceAdded(true);
             }
+			else{
+				setDeviceAdded(false);
+			}
           };
 
           mqttClient.connect({
@@ -64,6 +76,7 @@ const ControlPage = ({ navigation }) => {
     };
 
     fetchSavedData();
+	return () => clearInterval(intervalId);
   }, []);
  
   const handleStartStop = () => {
@@ -106,11 +119,11 @@ const ControlPage = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-	<Text style={styles.header}>{isOnline ? "BeeGreen is ready" : "Wait until device status is online"}</Text>
+	<Text style={styles.header}>{deviceAdded ? "BeeGreen is ready" : "Wait until device status is online"}</Text>
       {/* Online/Offline Indicator */}
       <View style={styles.statusContainer}>
         <Text style={styles.statusText}>
-          Device Status: {isOnline ? "Online" : "Offline"}
+          Device Status: {deviceAdded ? "Online" : "Offline"}
         </Text>
         
       </View>
@@ -120,7 +133,6 @@ const ControlPage = ({ navigation }) => {
         title={isRunning ? "Stop" : "Start"}
         onPress={handleStartStop}
         color={isRunning ? "red" : "green"}
-		
        />
 	   
       <View style={styles.checkboxContainer}>
