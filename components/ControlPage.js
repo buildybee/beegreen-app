@@ -10,43 +10,70 @@ const ControlPage = ({ navigation }) => {
   const [deviceAdded, setDeviceAdded] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [schedulerSet, setSchedulerSet] = useState(false);
-  const [pumpStatus, setPumpStatus] = useState("off");
+  const [pumpStatus, setPumpStatus] = useState("OFF");
   const [runForInterval, setRunForInterval] = useState(false);
   const [isOnline, setIsOnline] = useState(false);
   const [client, setClient] = useState(null);
   const pumpTriggerTopic = "beegreen/pump_trigger";
  // const [timeout, setTimeout] = useState("5000");
   const timerRef = useRef(null);
+  const [savedData, setSavedData] = useState({
+        pumpStatus: "OFF",
+		pumpTime: "",
+		mqttServer: "",
+		mqttPort: "",
+		mqttUser: "",
+		mqttPassword: "",
+		scheduler: "",
+  });
+ // const mqttClient= "";
 
 const [dummy, setDummy] = useState(0);
 
-  useEffect(() => {
-	  const intervalId = setInterval(() => {
-    setDummy(prev => prev + 1); // Triggers re-render
-  }, 2000);
-
-  
-  
+useEffect(() => {
     const fetchSavedData = async () => {
       const config = await SecureStore.getItemAsync("config");
       if (config) {
         const parsedConfig = JSON.parse(config);
-        setDeviceAdded(parsedConfig.deviceAdded || false);
-        setSchedulerSet(parsedConfig.schedulerSet || false);
+        // Set default values if any field is missing
+        setSavedData({
+          mqttServer: parsedConfig.mqttServer || "",
+          mqttPort: parsedConfig.mqttPort || "",
+          mqttUser: parsedConfig.mqttUser || "",
+          mqttPassword: parsedConfig.mqttPassword || "",
+		  pumpTime: parsedConfig.pumpTime || "",
+		  scheduler: parsedConfig.scheduler || "",
+		  pumpStatus: parsedConfig.pumpStatus || "",
+        });
+      }
+    };
+
+    fetchSavedData();
+  }, []);
+
+  useEffect(() => {
+  
+  
+    const fetchSavedData = async () => {
+      const config = await SecureStore.getItemAsync("config");
+      if (config) { 
+        const parsedConfig = JSON.parse(config);
 
         if (parsedConfig.mqttServer) {
           // Initialize MQTT client
-          const mqttClient = new Paho.Client(
+         const mqttClient = new Paho.Client(
             parsedConfig.mqttServer,
             Number(parsedConfig.mqttPort),
             "clientId-" + Math.random().toString(16).substr(2, 8)
           );
 
           mqttClient.onMessageArrived = (message) => {
-            if (message.destinationName === "beegreen/heartbeat") {
-              setPumpStatus(message.payloadString);
-			  console.log(message);
-			  setDeviceAdded(true);
+            if (message.destinationName === "beegreen/heartbeat" || message.destinationName === "beegreen/pump_status") {
+              //setPumpStatus(message.payloadString);
+			  if(message.payloadString){
+			    console.log(message);
+			    setDeviceAdded(true);
+			  }
             }
 			else{
 				setDeviceAdded(false);
@@ -70,46 +97,68 @@ const [dummy, setDummy] = useState(0);
           setClient(mqttClient);
         }
       }
-	  if (timerRef.current) {
-      clearTimeout(timerRef.current);
-    }
     };
 
     fetchSavedData();
-	return () => clearInterval(intervalId);
   }, []);
  
   const handleStartStop = () => {
-    const newState = !isRunning;
-	
-	 if (timerRef.current) {
-    clearTimeout(timerRef.current);
-    timerRef.current = null;
-  }
+	const newState = !isRunning;	
     setIsRunning(newState);
 	setPumpStatus(newState ? "ON" : "OFF");	
+	
+	//setPumpStatus(newState ? "ON" : "OFF");	
 
     // Publish message to MQTT topic
     if (client && client.isConnected()) {
+	  //const newState = !isRunning;
+	  //setIsRunning(newState);
       const message = new Paho.Message(newState ? "1" : "0");
       message.destinationName = pumpTriggerTopic;
-      client.send(message);
+      client.send(message);	  
+	  if(deviceAdded){
+		savedData.pumpTime = message.payloadString;
+		setPumpStatus(newState ? "ON" : "OFF");
+		savedData.pumpStatus = pumpStatus; 
+	  }
+	  else{
+		//setDeviceAdded(false);
+		setIsRunning(!newState);
+		//newState = isRunning;
+	  }
+	  
       console.log(`Published: ${newState ? "Start" : "Stop"}`);
 	 // setPumpStatus(newState ? "ON" : "OFF");
-	  if (newState && runForInterval) {
-		
-      timerRef.current = setTimeout(() => {
-        setIsRunning(false);
-        setPumpStatus("OFF");
+	  if (newState && runForInterval) {	
+        timerRef.current = setTimeout(() => {
+        
 		console.log("State is ON, run for interval is selected.");
         const stopMessage = new Paho.Message("0");
         stopMessage.destinationName = pumpTriggerTopic;
         client.send(stopMessage);
         console.log("Automatically stopped after 5 seconds");
+		
+		if(deviceAdded){
+			savedData.pumpTime = message.payloadString;
+			setIsRunning(false);
+			//newState = isRunning;
+			setPumpStatus("OFF");
+			savedData.pumpStatus = pumpStatus;
+		}
+		
+		else{
+			setIsRunning(!newState);
+			//newState = isRunning;
+		}
       }, 5000); // 5 seconds
-    }
+     }
+	 SecureStore.setItemAsync("config", JSON.stringify(savedData))
+	  .then(() => {
+		console.log(savedData); // Navigate to Control Page	
+	 })
+	 
     } else {
-      console.error("MQTT client is not connected...");
+      console.error("Please refresh to update device status...");
     }
   };
 
@@ -155,7 +204,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 24,
-    fontWeight: "bold",
+    
   },
   checkboxContainer: {
     flexDirection: "row",
@@ -169,6 +218,7 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 20,
     color: "ffff",
+	fontWeight: "bold",
   },
   statusLight: {
     width: 40,

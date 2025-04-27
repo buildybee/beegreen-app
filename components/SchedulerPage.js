@@ -13,18 +13,22 @@ import { Picker } from "@react-native-picker/picker";
 
 const SchedulerPage = ({ navigation }) => {
   const [isRunning, setIsRunning] = useState(false);
+  const [scheduleFlag, setScheduleFlag] = useState(true);
   const [selectedTime, setSelectedTime] = useState("00:00"); // For Set Timer
   const [selectedMinutes, setSelectedMinutes] = useState(0); // For Duration (Minutes)
   const [selectedSeconds, setSelectedSeconds] = useState(0); // For Duration (Seconds)
   const [intervalHours, setIntervalHours] = useState(0); // For Duration (Minutes)
   const [intervalMinutes, setIntervalMinutes] = useState(0); 
+  const [scheduler, setSchedule] = useState('');
   const [isOnline, setIsOnline] = useState(false);
   const [savedData, setSavedData] = useState({
-    wifiSSID: "",
-    mqttServer: "",
-    mqttPort: "",
-    mqttUser: "",
-    mqttPassword: "",
+        pumpStatus: "OFF",
+		pumpTime: "",
+		mqttServer: "",
+		mqttPort: "",
+		mqttUser: "",
+		mqttPassword: "",
+		scheduler: "",
   });
   const [client, setClient] = useState(null);
 
@@ -85,19 +89,30 @@ const SchedulerPage = ({ navigation }) => {
         const parsedConfig = JSON.parse(config);
         // Set default values if any field is missing
         setSavedData({
-          wifiSSID: parsedConfig.wifiSSID || "",
           mqttServer: parsedConfig.mqttServer || "",
           mqttPort: parsedConfig.mqttPort || "",
           mqttUser: parsedConfig.mqttUser || "",
           mqttPassword: parsedConfig.mqttPassword || "",
+		  pumpTime: "",
+		  scheduler: parsedConfig.scheduler || "",
+		  pumpStatus: parsedConfig.pumpStatus || false,
         });
       }
+	  
     };
 
     fetchSavedData();
   }, []);
 
   useEffect(() => {
+	if(savedData.scheduler!="00:00:0:0"){
+		
+		  Alert.alert("already schedule is set for : ", savedData.scheduler );
+		  
+	  }
+	if(savedData.scheduler=="00:00:0:0"){
+		  Alert.alert("::::::::  Nothing is scheduled ::::::::: ");
+	  }
     if (savedData.mqttServer) {
       // Initialize MQTT client only if mqttServer is available
       const mqttClient = new Paho.Client(
@@ -148,20 +163,7 @@ const SchedulerPage = ({ navigation }) => {
     // Handle incoming messages if needed
   };
 
-  const handleStartStop = () => {
-    const newState = !isRunning;
-    setIsRunning(newState);
 
-    // Publish message to MQTT topic
-    if (client && client.isConnected()) {
-      const message = new Paho.Message(newState ? "1" : "0");
-      message.destinationName = pumpTriggerTopic;
-      client.send(message);
-      console.log(`Published: ${newState ? "Start" : "Stop"}`);
-    } else {
-      console.error("MQTT client is not connected");
-    }
-  };
 
   const handleSetTimer = () => {
     Alert.alert("Timer Set", `Timer set to ${selectedTime}`);
@@ -174,15 +176,28 @@ const SchedulerPage = ({ navigation }) => {
 	  
 	  const timeofday = selectedTime;
 	  const duration = (selectedMinutes*60 + selectedSeconds);
-	  const interval = (intervalMinutes + intervalHours*60);
+	  const interval = ((intervalMinutes + intervalHours*60)*60);
+	  
+	  if (duration > interval){
+		Alert.alert("duration cannot be greater than interval");
+	    setScheduleFlag(false);
+	  }
    // const duration = `${String(selectedMinutes).padStart(2, "0")}:${String(selectedSeconds).padStart(2, "0")}`;
 	const schedule = `${selectedTime}:${(selectedMinutes*60 + selectedSeconds)}:${(intervalMinutes + intervalHours*60)}`;
+	savedData.scheduler = schedule;
+	SecureStore.setItemAsync("config", JSON.stringify(savedData))
+          .then(() => {
+            console.log(savedData); // Navigate to Control Page	
+          })
    Alert.alert("Duration Set", `Duration set to ${duration}`);
    console.log("sending the set schedule as ",schedule)
    // Alert.alert("Pump will run for ", `${duration}`, "secs every ", `${interval}`,  " starting on ", `${timeofday}` );
-   const message = new Paho.Message(schedule);
-      message.destinationName = "beegreen/set_schedule";
-      client.send(message);
+   
+      if(scheduleFlag){
+	    const message = new Paho.Message(schedule);
+		message.destinationName = "beegreen/set_schedule";
+		client.send(message);
+	  }
   };
 
   const handleSetInterval = (value) => {
@@ -192,6 +207,7 @@ const SchedulerPage = ({ navigation }) => {
   return (
     <SafeAreaView style={styles.container}>
       <Text style={styles.header}>BeeGreen</Text>
+	  <Text style={styles.statusText}>Schedule set : {savedData.scheduler}</Text>
       {/* Online/Offline Indicator */}
       <View style={styles.statusContainer}>
         <Text style={styles.statusText}>

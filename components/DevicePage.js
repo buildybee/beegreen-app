@@ -62,7 +62,7 @@ const DevicePage =  ({ navigation }) => {
 		 mqttClient.onMessageArrived = (message) => {
           const data = JSON.parse(message.payloadString);
           setFirmwareVersion(data.firmwareVersion);
-		  console.log("onMessageArrived section.........");
+		  console.log("onMessageArrived section........");
 		  console.log(data);
         };
 		

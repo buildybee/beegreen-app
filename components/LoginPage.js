@@ -13,12 +13,15 @@ const LoginPage = ({ navigation }) => {
 	const [mqttServer, setMqttServer] = useState('');
 	const [mqttPort, setMqttPort] = useState('');
 	const [mqttPassword, setMqttPassword] = useState('');
+	const [scheduler, setSchedule] = useState('');
 	const [savedData, setSavedData] = useState({
-		wifiSSID: "Airtel_deba_4193",
+		pumpStatus: "OFF",
+		pumpTime: "",
 		mqttServer: mqttServer,
 		mqttPort: mqttPort,
 		mqttUser: mqttUser,
 		mqttPassword: mqttPassword,
+		scheduler: setSchedule,
 	 });
 
 const handleLogin = () => {
@@ -62,8 +65,9 @@ const handleLogin = () => {
           mqttPort,
           mqttUser,
           mqttPassword,
-          deviceAdded: false, // Set deviceAdded to true
-          schedulerSet: false, // Default to false
+          pumpTime: "", // to capture time 
+          scheduler: "None", // Default to false
+		  pumpStatus: "OFF",
         };
 		console.log(config);
         SecureStore.setItemAsync("config", JSON.stringify(config))
