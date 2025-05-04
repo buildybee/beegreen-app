@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { View, Text, StyleSheet, SafeAreaView, Button } from "react-native";
+import { View, Text, StyleSheet, SafeAreaView, Button, TouchableOpacity } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import Checkbox from "expo-checkbox";
 import Paho from "paho-mqtt";
@@ -166,76 +166,161 @@ useEffect(() => {
  //   return <DefaultPage navigation={navigation} />; // Show default page if device is not added
  // }
 
-  return (
+ return (
     <SafeAreaView style={styles.container}>
-	<Text style={styles.header}>{deviceAdded ? "BeeGreen is ready" : "Wait until device status is online"}</Text>
-      {/* Online/Offline Indicator */}
-      <View style={styles.statusContainer}>
-        <Text style={styles.statusText}>
-          Device Status: {deviceAdded ? "Online" : "Offline"}
-        </Text>
-        
-      </View>
-      <Text style={styles.title}>Pump Status: {pumpStatus}</Text>
-      
-	   <Button
-        title={isRunning ? "Stop" : "Start"}
-        onPress={handleStartStop}
-        color={isRunning ? "red" : "green"}
-       />
-	   
-      <View style={styles.checkboxContainer}>
-        <Checkbox
-          value={runForInterval}
-          onValueChange={setRunForInterval}
-        />
-        <Text style={styles.checkboxLabel}>Run for 5 seconds interval</Text>
-      </View>
+        <View style={styles.content}>
+            {/* Header */}
+            <Text style={styles.header}>
+                {deviceAdded ? "BeeGreen is ready" : "Wait until device status is online"}
+            </Text>
+            
+            {/* Status Card */}
+            <View style={[styles.card, deviceAdded ? styles.onlineCard : styles.offlineCard]}>
+                <Text style={styles.statusText}>
+                    Device Status: {deviceAdded ? "Online" : "Offline"}
+                </Text>
+                {deviceAdded && (
+                    <View style={styles.statusIndicator}>
+                        <View style={[styles.statusLight, deviceAdded && styles.onlineLight]} />
+                    </View>
+                )}
+            </View>
+            
+            {/* Pump Status */}
+            <View style={styles.card}>
+                <Text style={styles.title}>Pump Status:</Text>
+                <Text style={[styles.pumpStatus, isRunning && styles.pumpActive]}>
+                    {pumpStatus}
+                </Text>
+            </View>
+            
+            {/* Controls */}
+            {deviceAdded && (
+                <View style={styles.controlsContainer}>
+                    <TouchableOpacity 
+                        style={[styles.button, isRunning ? styles.stopButton : styles.startButton]}
+                        onPress={handleStartStop}
+                    >
+                        <Text style={styles.buttonText}>
+                            {isRunning ? "STOP" : "START"}
+                        </Text>
+                    </TouchableOpacity>
+                    
+                    <View style={styles.checkboxContainer}>
+                        <Checkbox
+                            value={runForInterval}
+                            onValueChange={setRunForInterval}
+                            color={runForInterval ? '#4CAF50' : undefined}
+                        />
+                        <Text style={styles.checkboxLabel}>Run for 5 seconds interval</Text>
+                    </View>
+                </View>
+            )}
+        </View>
     </SafeAreaView>
-  );
+);
 };
-
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  title: {
-    fontSize: 24,
-    
-  },
-  checkboxContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 20,
-  },
-  checkboxLabel: {
-    fontSize: 16,
-    marginLeft: 10,
-  },
-  statusText: {
-    fontSize: 20,
-    color: "ffff",
-	fontWeight: "bold",
-  },
-  statusLight: {
-    width: 40,
-    height: 40,
-    borderRadius: 40,
-    marginTop: 10,
-  },
-  statusContainer: {
-    marginTop: -10,
-    alignItems: "center",
-  },
-  header: {
-    fontSize: 15,
-    color: "green",
-    marginBottom: 20,
-    fontWeight: "bold",
-  },
+    container: {
+        flex: 1,
+        backgroundColor: "#F5F5F5",
+    },
+    content: {
+        flex: 1,
+        padding: 20,
+        justifyContent: 'center',
+    },
+    card: {
+        backgroundColor: 'white',
+        borderRadius: 12,
+        padding: 20,
+        marginBottom: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3,
+    },
+    onlineCard: {
+        borderLeftWidth: 5,
+        borderLeftColor: '#4CAF50',
+    },
+    offlineCard: {
+        borderLeftWidth: 5,
+        borderLeftColor: '#F44336',
+    },
+    header: {
+        fontSize: 22,
+        color: '#333',
+        marginBottom: 30,
+        fontWeight: '600',
+        textAlign: 'center',
+    },
+    title: {
+        fontSize: 18,
+        color: '#555',
+        marginBottom: 5,
+        fontWeight: '500',
+    },
+    statusText: {
+        fontSize: 18,
+        color: '#333',
+        fontWeight: '500',
+    },
+    pumpStatus: {
+        fontSize: 24,
+        color: '#F44336',
+        fontWeight: 'bold',
+    },
+    pumpActive: {
+        color: '#4CAF50',
+    },
+    statusIndicator: {
+        alignItems: 'center',
+        marginTop: 10,
+    },
+    statusLight: {
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        backgroundColor: '#F44336',
+    },
+    onlineLight: {
+        backgroundColor: '#4CAF50',
+    },
+    controlsContainer: {
+        marginTop: 10,
+    },
+    button: {
+        paddingVertical: 15,
+        borderRadius: 8,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 20,
+    },
+    startButton: {
+        backgroundColor: '#4CAF50',
+    },
+    stopButton: {
+        backgroundColor: '#F44336',
+    },
+    buttonText: {
+        color: 'white',
+        fontSize: 18,
+        fontWeight: 'bold',
+    },
+    checkboxContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 10,
+        backgroundColor: 'white',
+        borderRadius: 8,
+    },
+    checkboxLabel: {
+        fontSize: 16,
+        marginLeft: 12,
+        color: '#333',
+    },
 });
 
 export default ControlPage;

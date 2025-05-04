@@ -6,7 +6,7 @@ import { MaterialIcons } from "@expo/vector-icons";
 //import DevicePage from "../components/DevicePage";
 import SchedulerPage from "../components/SchedulerPage";
 import ControlPage from "../components/ControlPage";
-import TimelinePage from "../components/TimelinePage";
+//import TimelinePage from "../components/TimelinePage";
 import AccountInfoPage from "../components/AccountInfoPage";
 import LoginPage from "../components/LoginPage";
 
@@ -61,15 +61,7 @@ const AppNavigator = () => {
                 ),
               }}
             />
-            <Drawer.Screen
-              name="Timeline"
-              component={TimelinePage}
-              options={{
-                drawerIcon: ({ color, size }) => (
-                  <MaterialIcons name="timeline" size={size} color={color} />
-                ),
-              }}
-            />
+            
             <Drawer.Screen
               name="Account Info"
               component={AccountInfoPage}

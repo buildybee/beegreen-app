@@ -13,15 +13,13 @@ const LoginPage = ({ navigation }) => {
 	const [mqttServer, setMqttServer] = useState('');
 	const [mqttPort, setMqttPort] = useState('');
 	const [mqttPassword, setMqttPassword] = useState('');
-	const [scheduler, setSchedule] = useState('');
 	const [savedData, setSavedData] = useState({
-		pumpStatus: "OFF",
-		pumpTime: "",
 		mqttServer: mqttServer,
 		mqttPort: mqttPort,
 		mqttUser: mqttUser,
 		mqttPassword: mqttPassword,
-		scheduler: setSchedule,
+		deviceAdded: false, // Set deviceAdded to true
+        schedulerSet: false,
 	 });
 
 const handleLogin = () => {
@@ -65,127 +63,127 @@ const handleLogin = () => {
           mqttPort,
           mqttUser,
           mqttPassword,
-          pumpTime: "", // to capture time 
-          scheduler: "None", // Default to false
-		  pumpStatus: "OFF",
+          deviceAdded: false, // Set deviceAdded to true
+          schedulerSet: false, // Default to false
         };
 		console.log(config);
         SecureStore.setItemAsync("config", JSON.stringify(config))
-          .then(() => {
-            Alert.alert("Success", "Configuration saved successfully.", "Kindly close this app and reopen");
-            return <ControlPage navigation={navigation} />; // Navigate to Control Page	
-          })
-          .catch((error) => {
-            console.error("Error saving configuration:", error);
-            Alert.alert("Error", "Failed to save configuration.");
-          });
+           Alert.alert("Success! Configuration saved. Kindly close this app and reopen");
+		   return <ControlPage navigation={navigation} />; // Navigate to Control Page	
+            
       },
       onFailure: (err) => {
         setIsConnecting(false);
-        Alert.alert("Error", "Failed to connect to MQTT broker: " + err.errorMessage);
+        Alert.alert("Error! Failed to connect to MQTT broker: " + err.errorMessage);
       },
       useSSL: true,
     });
 };
-   return (
-    <SafeAreaView style={styles.container}>
+return (
+  <SafeAreaView style={styles.container}>
+    <View style={styles.signupContainer}>
+      <Text style={styles.signupText}>BeeGreen</Text>
+      <Text style={styles.subtitle}>Enter MQTT connection details</Text>
       
-      <View style={styles.signupContainer}>
-        <Text style={styles.signupText}>Sign Up</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Enter MQTT User"
-          value={mqttUser}
-          onChangeText={setMqttUser}
-        />
-		<TextInput
-          style={styles.input}
-          placeholder="Enter MQTT password"
-          value={mqttPassword}
-          onChangeText={setMqttPassword}
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Enter MQTT Server"
-          value={mqttServer}
-          onChangeText={setMqttServer}
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Enter MQTT Port"
-          value={mqttPort}
-          onChangeText={setMqttPort}
-          keyboardType="numeric"
-        />
-        <TouchableOpacity style={styles.signupButton} onPress={handleLogin}>
-          <Text style={styles.signupButtonText}>Create Account</Text>
-        </TouchableOpacity>
-      </View>
-    
-    </SafeAreaView>
+      <TextInput
+        style={styles.input}
+        placeholder="Enter MQTT User"
+        placeholderTextColor="#aaa"
+        value={mqttUser}
+        onChangeText={setMqttUser}
+      />
+      <TextInput
+        style={styles.input}
+        placeholder="Enter MQTT Password"
+        placeholderTextColor="#aaa"
+        value={mqttPassword}
+        onChangeText={setMqttPassword}
+        secureTextEntry={true}
+      />
+      <TextInput
+        style={styles.input}
+        placeholder="Enter MQTT Server"
+        placeholderTextColor="#aaa"
+        value={mqttServer}
+        onChangeText={setMqttServer}
+      />
+      <TextInput
+        style={styles.input}
+        placeholder="Enter MQTT Port"
+        placeholderTextColor="#aaa"
+        value={mqttPort}
+        onChangeText={setMqttPort}
+        keyboardType="numeric"
+      />
+      
+      <TouchableOpacity 
+        style={styles.signupButton} 
+        onPress={handleLogin}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.signupButtonText}>Connect</Text>
+      </TouchableOpacity>
+    </View>
+  </SafeAreaView>
 )};
-
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#228B22",
+    backgroundColor: "#2E8B57", // Slightly darker green for better contrast
     alignItems: "center",
     justifyContent: "center",
   },
-  savedDataContainer: {
-    marginTop: 30,
-    width: "80%",
-    backgroundColor: "#fff",
-    padding: 15,
-    borderRadius: 5,
-    position: "relative", // For positioning the delete button
-  },
-  savedDataText: {
-    fontSize: 16,
-    marginBottom: 10,
-    color: "#000",
-  },
-  deleteButton: {
-    position: "absolute",
-    top: 10,
-    right: 10,
-  },
-  placeholderContainer: {
-    alignItems: "center",
-  },
-  placeholderText: {
-    fontSize: 18,
-    color: "#fff",
-    textAlign: "center",
-  },
   signupContainer: {
+    width: '90%',
+    maxWidth: 400,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 15,
+    padding: 30,
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  input: {
-    width: '80%',
-    height: 40,
-    borderWidth: 1,
-    marginBottom: 10,
-    padding: 10,
-    borderRadius: 5,
-	color: 'white',
-  },
-  signupButton: {
-    backgroundColor: 'blue',
-    padding: 10,
-    borderRadius: 5,
-  },
-  signupButtonText: {
-    color: 'white',
-    fontWeight: 'bold',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   signupText: {
     color: 'white',
     fontWeight: 'bold',
-	fontSize: 30,
+    fontSize: 28,
+    marginBottom: 5,
+  },
+  subtitle: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 14,
+    marginBottom: 25,
+  },
+  input: {
+    width: '100%',
+    height: 50,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    marginBottom: 15,
+    paddingHorizontal: 15,
+    borderRadius: 8,
+    color: 'white',
+    fontSize: 16,
+  },
+  signupButton: {
+    backgroundColor: '#1E6F9F',
+    width: '100%',
+    padding: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+  },
+  signupButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 16,
+    letterSpacing: 0.5,
   },
 });
 

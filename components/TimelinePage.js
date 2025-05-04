@@ -10,10 +10,13 @@ const TimelinePage = () => {
   const [lastHeartbeatTimestamp, setLastHeartbeatTimestamp] = useState(Date.now());
   const [client, setClient] = useState(null);
   const [savedData, setSavedData] = useState({
-    mqttServer: "",
-    mqttPort: "",
-    mqttUser: "",
-    mqttPassword: "",
+        pumpStatus: "OFF",
+		pumpTime: "",
+		mqttServer: "",
+		mqttPort: "",
+		mqttUser: "",
+		mqttPassword: "",
+		scheduler: "",
   });
 
   // MQTT Configuration
@@ -32,6 +35,9 @@ const TimelinePage = () => {
           mqttPort: parsedConfig.mqttPort || "",
           mqttUser: parsedConfig.mqttUser || "",
           mqttPassword: parsedConfig.mqttPassword || "",
+		  pumpTime: parsedConfig.pumpTime || "",
+		  scheduler: parsedConfig.scheduler || "",
+		  pumpStatus: parsedConfig.pumpStatus || "",
         });
       }
     };
@@ -49,16 +55,16 @@ const TimelinePage = () => {
       );
 
       // Set callback handlers
-      mqttClient.onConnectionLost = onConnectionLost;
+     // mqttClient.onConnectionLost = onConnectionLost;
       mqttClient.onMessageArrived = onMessageArrived;
 
       // Connect to the MQTT broker
       mqttClient.connect({
         onSuccess: () => {
-          console.log("Connected to MQTT broker");
+          console.log("Connected to MQTT broker in timeline page");
           setIsDeviceOnline(true);
-          mqttClient.subscribe(pumpStatusTopic);
-          mqttClient.subscribe(heartbeatTopic);
+         // mqttClient.subscribe(pumpStatusTopic);
+         // mqttClient.subscribe(heartbeatTopic);
         },
         onFailure: (err) => {
           console.error("Failed to connect to MQTT broker", err);
@@ -136,7 +142,48 @@ const TimelinePage = () => {
           },
         ]);
       }
+	  
+	  
+		const onMessageArrived = (message) => {
+			const data = JSON.parse(message.payloadString);
+
+			if (message.destinationName === pumpStatusTopic) {
+			  // Add pump status to timeline
+			  setTimelineData((prevData) => [
+				...prevData,
+				{
+				  time: new Date(data.timestamp).toLocaleTimeString(),
+				  title: `Pump ${data.payload}`,
+				  description: `Timestamp: ${new Date(data.timestamp).toLocaleString()}`,
+				  icon: data.payload === "on" ? "power" : "power-off",
+				},
+			  ]);
+			} else if (message.destinationName === heartbeatTopic) {
+			  // Update last heartbeat timestamp
+			  setLastHeartbeatTimestamp(Date.now());
+
+			  // Mark device as online
+			  if (!isDeviceOnline) {
+				setIsDeviceOnline(true);
+				setTimelineData((prevData) => [
+				  ...prevData,
+				  {
+					time: new Date().toLocaleTimeString(),
+					title: "Device Online",
+					description: `Timestamp: ${new Date().toLocaleString()}`,
+					icon: "wifi",
+				  },
+				]);
+			  }
+			}
+		  };
+	  
+	  
     }, 6000); // Check every second
+	
+	
+	
+	
 
     return () => clearInterval(interval);
   }, [lastHeartbeatTimestamp, isDeviceOnline]);

@@ -111,7 +111,7 @@ const SchedulerPage = ({ navigation }) => {
 		  
 	  }
 	if(savedData.scheduler=="00:00:0:0"){
-		  Alert.alert("::::::::  Nothing is scheduled ::::::::: ");
+		  Alert.alert("Nothing is Scheduled");
 	  }
     if (savedData.mqttServer) {
       // Initialize MQTT client only if mqttServer is available
@@ -160,6 +160,10 @@ const SchedulerPage = ({ navigation }) => {
 
   const onMessageArrived = (message) => {
     console.log("Message arrived:", message.payloadString);
+	if(message.destinationName == "beegreen/get_schedule"){
+		savedData.scheduler = message.payloadString;
+		SecureStore.setItemAsync("config", JSON.stringify(savedData));
+	}
     // Handle incoming messages if needed
   };
 
@@ -182,13 +186,12 @@ const SchedulerPage = ({ navigation }) => {
 		Alert.alert("duration cannot be greater than interval");
 	    setScheduleFlag(false);
 	  }
+	  else{
+		setScheduleFlag(true);
+	  }
    // const duration = `${String(selectedMinutes).padStart(2, "0")}:${String(selectedSeconds).padStart(2, "0")}`;
 	const schedule = `${selectedTime}:${(selectedMinutes*60 + selectedSeconds)}:${(intervalMinutes + intervalHours*60)}`;
-	savedData.scheduler = schedule;
-	SecureStore.setItemAsync("config", JSON.stringify(savedData))
-          .then(() => {
-            console.log(savedData); // Navigate to Control Page	
-          })
+	//savedData.scheduler = schedule;
    Alert.alert("Duration Set", `Duration set to ${duration}`);
    console.log("sending the set schedule as ",schedule)
    // Alert.alert("Pump will run for ", `${duration}`, "secs every ", `${interval}`,  " starting on ", `${timeofday}` );
@@ -197,6 +200,12 @@ const SchedulerPage = ({ navigation }) => {
 	    const message = new Paho.Message(schedule);
 		message.destinationName = "beegreen/set_schedule";
 		client.send(message);
+		console.log("Message sent to MQTT client to set schedule")
+		message.destinationName = "beegreen/request_schedule";
+	    client.send(message);
+		console.log("Requested next schedule", message.payloadString);
+		savedData.scheduler = message.payloadString;
+		SecureStore.setItemAsync("config", JSON.stringify(savedData));
 	  }
   };
 
@@ -283,7 +292,7 @@ const SchedulerPage = ({ navigation }) => {
             ))}
           </Picker>
         </View>
-        <Button title="Set Schedule" onPress={handleSetDuration} />
+        {isOnline && <Button title="Set Schedule" onPress={handleSetDuration} />}
       </View>
 
    
