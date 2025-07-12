@@ -1,94 +1,59 @@
 import React, { useState, useEffect, useRef } from "react";
-import { View, Text, StyleSheet, SafeAreaView, Button, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, StatusBar } from "react-native";
+import Slider from '@react-native-community/slider';
 import { MaterialIcons } from "@expo/vector-icons";
 import Checkbox from "expo-checkbox";
 import Paho from "paho-mqtt";
 import * as SecureStore from "expo-secure-store";
-import DefaultPage from "./DefaultPage"; // Import DefaultPage
 
 const ControlPage = ({ navigation }) => {
   const [deviceAdded, setDeviceAdded] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
-  const [schedulerSet, setSchedulerSet] = useState(false);
-  const [pumpStatus, setPumpStatus] = useState("OFF");
-  const [runForInterval, setRunForInterval] = useState(false);
+  const [pumpStatus, setPumpStatus] = useState("off");
+  const [duration, setDuration] = useState(5); // Default duration in seconds
   const [isOnline, setIsOnline] = useState(false);
   const [client, setClient] = useState(null);
   const pumpTriggerTopic = "beegreen/pump_trigger";
- // const [timeout, setTimeout] = useState("5000");
+  const pumpStatusTopic = "beegreen/pump_status";
   const timerRef = useRef(null);
-  const [savedData, setSavedData] = useState({
-        pumpStatus: "OFF",
-		pumpTime: "",
-		mqttServer: "",
-		mqttPort: "",
-		mqttUser: "",
-		mqttPassword: "",
-		scheduler: "",
-  });
- // const mqttClient= "";
 
-const [dummy, setDummy] = useState(0);
-
-useEffect(() => {
+  useEffect(() => {
     const fetchSavedData = async () => {
       const config = await SecureStore.getItemAsync("config");
       if (config) {
         const parsedConfig = JSON.parse(config);
-        // Set default values if any field is missing
-        setSavedData({
-          mqttServer: parsedConfig.mqttServer || "",
-          mqttPort: parsedConfig.mqttPort || "",
-          mqttUser: parsedConfig.mqttUser || "",
-          mqttPassword: parsedConfig.mqttPassword || "",
-		  pumpTime: parsedConfig.pumpTime || "",
-		  scheduler: parsedConfig.scheduler || "",
-		  pumpStatus: parsedConfig.pumpStatus || "",
-        });
-      }
-    };
-
-    fetchSavedData();
-  }, []);
-
-  useEffect(() => {
-  
-  
-    const fetchSavedData = async () => {
-      const config = await SecureStore.getItemAsync("config");
-      if (config) { 
-        const parsedConfig = JSON.parse(config);
+        setDeviceAdded(parsedConfig.deviceAdded || false);
 
         if (parsedConfig.mqttServer) {
-          // Initialize MQTT client
-         const mqttClient = new Paho.Client(
+          const mqttClient = new Paho.Client(
             parsedConfig.mqttServer,
             Number(parsedConfig.mqttPort),
             "clientId-" + Math.random().toString(16).substr(2, 8)
           );
 
           mqttClient.onMessageArrived = (message) => {
-            if (message.destinationName === "beegreen/heartbeat" || message.destinationName === "beegreen/pump_status") {
-              //setPumpStatus(message.payloadString);
-			  if(message.payloadString){
-			    console.log(message);
-			    setDeviceAdded(true);
-			  }
+            if (message.destinationName === pumpStatusTopic) {
+              try {
+                const payload = JSON.parse(message.payloadString);
+                const status = payload.payload.toLowerCase();
+                setPumpStatus(status);
+                setIsRunning(status === "on");
+                setDeviceAdded(true);
+              } catch (error) {
+                console.error("Error parsing message:", error);
+              }
             }
-			else{
-				setDeviceAdded(false);
-			}
           };
 
           mqttClient.connect({
             onSuccess: () => {
-              mqttClient.subscribe("#");
-           setIsOnline(true);
-        },
-        onFailure: (err) => {
-          console.error("Failed to connect to MQTT broker", err);
-          setIsOnline(false);
-        },
+              mqttClient.subscribe(pumpStatusTopic);
+              setIsOnline(true);
+            },
+            onFailure: (err) => {
+              console.error("Connection failed", err);
+              setIsOnline(false);
+            },
             useSSL: true,
             userName: parsedConfig.mqttUser,
             password: parsedConfig.mqttPassword,
@@ -100,227 +65,198 @@ useEffect(() => {
     };
 
     fetchSavedData();
-  }, []);
- 
-  const handleStartStop = () => {
-	const newState = !isRunning;	
-    setIsRunning(newState);
-	setPumpStatus(newState ? "ON" : "OFF");	
-	
-	//setPumpStatus(newState ? "ON" : "OFF");	
 
-    // Publish message to MQTT topic
+    return () => {
+      if (client) client.disconnect();
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  const handlePumpControl = (start) => {
+    const newState = start;
+    setIsRunning(newState);
+    setPumpStatus(newState ? "on" : "off");
+
     if (client && client.isConnected()) {
-	  //const newState = !isRunning;
-	  //setIsRunning(newState);
-      const message = new Paho.Message(newState ? "1" : "0");
+      const message = new Paho.Message(start ? duration.toString() : "0");
       message.destinationName = pumpTriggerTopic;
-      client.send(message);	  
-	  if(deviceAdded){
-		savedData.pumpTime = message.payloadString;
-		setPumpStatus(newState ? "ON" : "OFF");
-		savedData.pumpStatus = pumpStatus; 
-	  }
-	  else{
-		//setDeviceAdded(false);
-		setIsRunning(!newState);
-		//newState = isRunning;
-	  }
-	  
-      console.log(`Published: ${newState ? "Start" : "Stop"}`);
-	 // setPumpStatus(newState ? "ON" : "OFF");
-	  if (newState && runForInterval) {	
+      client.send(message);
+      
+      if (newState) {
         timerRef.current = setTimeout(() => {
-        
-		console.log("State is ON, run for interval is selected.");
-        const stopMessage = new Paho.Message("0");
-        stopMessage.destinationName = pumpTriggerTopic;
-        client.send(stopMessage);
-        console.log("Automatically stopped after 5 seconds");
-		
-		if(deviceAdded){
-			savedData.pumpTime = message.payloadString;
-			setIsRunning(false);
-			//newState = isRunning;
-			setPumpStatus("OFF");
-			savedData.pumpStatus = pumpStatus;
-		}
-		
-		else{
-			setIsRunning(!newState);
-			//newState = isRunning;
-		}
-      }, 5000); // 5 seconds
-     }
-	 SecureStore.setItemAsync("config", JSON.stringify(savedData))
-	  .then(() => {
-		console.log(savedData); // Navigate to Control Page	
-	 })
-	 
-    } else {
-      console.error("Please refresh to update device status...");
+          setIsRunning(false);
+          setPumpStatus("off");
+        }, duration * 1000);
+      } else if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
     }
   };
 
- // if (!deviceAdded) {
- //   return <DefaultPage navigation={navigation} />; // Show default page if device is not added
- // }
-
- return (
+  return (
     <SafeAreaView style={styles.container}>
-        <View style={styles.content}>
-            {/* Header */}
-            <Text style={styles.header}>
-                {deviceAdded ? "BeeGreen is ready" : "Wait until device status is online"}
-            </Text>
-            
-            {/* Status Card */}
-            <View style={[styles.card, deviceAdded ? styles.onlineCard : styles.offlineCard]}>
-                <Text style={styles.statusText}>
-                    Device Status: {deviceAdded ? "Online" : "Offline"}
-                </Text>
-                {deviceAdded && (
-                    <View style={styles.statusIndicator}>
-                        <View style={[styles.statusLight, deviceAdded && styles.onlineLight]} />
-                    </View>
-                )}
-            </View>
-            
-            {/* Pump Status */}
-            <View style={styles.card}>
-                <Text style={styles.title}>Pump Status:</Text>
-                <Text style={[styles.pumpStatus, isRunning && styles.pumpActive]}>
-                    {pumpStatus}
-                </Text>
-            </View>
-            
-            {/* Controls */}
-            {deviceAdded && (
-                <View style={styles.controlsContainer}>
-                    <TouchableOpacity 
-                        style={[styles.button, isRunning ? styles.stopButton : styles.startButton]}
-                        onPress={handleStartStop}
-                    >
-                        <Text style={styles.buttonText}>
-                            {isRunning ? "STOP" : "START"}
-                        </Text>
-                    </TouchableOpacity>
-                    
-                    <View style={styles.checkboxContainer}>
-                        <Checkbox
-                            value={runForInterval}
-                            onValueChange={setRunForInterval}
-                            color={runForInterval ? '#4CAF50' : undefined}
-                        />
-                        <Text style={styles.checkboxLabel}>Run for 5 seconds interval</Text>
-                    </View>
-                </View>
-            )}
+      <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
+      
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>BeeGreen Controller</Text>
+        <View style={[styles.statusIndicator, { backgroundColor: deviceAdded ? '#4CAF50' : '#F44336' }]}>
+          <Text style={styles.statusText}>{deviceAdded ? "ONLINE" : "OFFLINE"}</Text>
         </View>
+      </View>
+
+      <View style={styles.card}>
+        <View style={styles.cardHeader}>
+          <MaterialIcons name="opacity" size={24} color="#5E72E4" />
+          <Text style={styles.cardTitle}>Pump Controller</Text>
+        </View>
+        
+        <View style={styles.statusContainer}>
+          <Text style={styles.statusLabel}>Current Status:</Text>
+          <View style={[styles.statusBadge, { backgroundColor: pumpStatus === 'on' ? '#4CAF50' : '#F44336' }]}>
+            <Text style={styles.statusBadgeText}>{pumpStatus.toUpperCase()}</Text>
+          </View>
+        </View>
+
+        {!isRunning ? (
+          <>
+            <Text style={styles.durationLabel}>Duration: {duration} seconds</Text>
+            <Slider
+              style={styles.slider}
+              minimumValue={1}
+              maximumValue={60}
+              step={1}
+              value={duration}
+              onValueChange={setDuration}
+              minimumTrackTintColor="#5E72E4"
+              maximumTrackTintColor="#E2E8F0"
+              thumbTintColor="#5E72E4"
+            />
+            <TouchableOpacity 
+              style={[styles.controlButton, { backgroundColor: '#4CAF50' }]}
+              onPress={() => handlePumpControl(true)}
+            >
+              <Text style={styles.controlButtonText}>START PUMP</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <TouchableOpacity 
+            style={[styles.controlButton, { backgroundColor: '#F44336' }]}
+            onPress={() => handlePumpControl(false)}
+          >
+            <Text style={styles.controlButtonText}>STOP PUMP</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      <View style={styles.footer}>
+        <Text style={styles.footerText}>BeeGreen Irrigation System</Text>
+      </View>
     </SafeAreaView>
-);
+  );
 };
+
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: "#F5F5F5",
-    },
-    content: {
-        flex: 1,
-        padding: 20,
-        justifyContent: 'center',
-    },
-    card: {
-        backgroundColor: 'white',
-        borderRadius: 12,
-        padding: 20,
-        marginBottom: 20,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 3,
-    },
-    onlineCard: {
-        borderLeftWidth: 5,
-        borderLeftColor: '#4CAF50',
-    },
-    offlineCard: {
-        borderLeftWidth: 5,
-        borderLeftColor: '#F44336',
-    },
-    header: {
-        fontSize: 22,
-        color: '#333',
-        marginBottom: 30,
-        fontWeight: '600',
-        textAlign: 'center',
-    },
-    title: {
-        fontSize: 18,
-        color: '#555',
-        marginBottom: 5,
-        fontWeight: '500',
-    },
-    statusText: {
-        fontSize: 18,
-        color: '#333',
-        fontWeight: '500',
-    },
-    pumpStatus: {
-        fontSize: 24,
-        color: '#F44336',
-        fontWeight: 'bold',
-    },
-    pumpActive: {
-        color: '#4CAF50',
-    },
-    statusIndicator: {
-        alignItems: 'center',
-        marginTop: 10,
-    },
-    statusLight: {
-        width: 20,
-        height: 20,
-        borderRadius: 10,
-        backgroundColor: '#F44336',
-    },
-    onlineLight: {
-        backgroundColor: '#4CAF50',
-    },
-    controlsContainer: {
-        marginTop: 10,
-    },
-    button: {
-        paddingVertical: 15,
-        borderRadius: 8,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: 20,
-    },
-    startButton: {
-        backgroundColor: '#4CAF50',
-    },
-    stopButton: {
-        backgroundColor: '#F44336',
-    },
-    buttonText: {
-        color: 'white',
-        fontSize: 18,
-        fontWeight: 'bold',
-    },
-    checkboxContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: 10,
-        backgroundColor: 'white',
-        borderRadius: 8,
-    },
-    checkboxLabel: {
-        fontSize: 16,
-        marginLeft: 12,
-        color: '#333',
-    },
+  container: {
+    flex: 1,
+    backgroundColor: '#f8f9fa',
+    paddingHorizontal: 20,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 20,
+    marginBottom: 30,
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#2D3748',
+  },
+  statusIndicator: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  statusText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 12,
+  },
+  card: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
+    marginBottom: 20,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#2D3748',
+    marginLeft: 10,
+  },
+  statusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 25,
+  },
+  statusLabel: {
+    fontSize: 16,
+    color: '#718096',
+    marginRight: 10,
+  },
+  statusBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  statusBadgeText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  durationLabel: {
+    fontSize: 16,
+    color: '#4A5568',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  slider: {
+    width: '100%',
+    height: 40,
+    marginBottom: 25,
+  },
+  controlButton: {
+    paddingVertical: 15,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  controlButtonText: {
+    color: 'white',
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  footer: {
+    position: 'absolute',
+    bottom: 20,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  footerText: {
+    color: '#A0AEC0',
+    fontSize: 12,
+  },
 });
 
 export default ControlPage;
