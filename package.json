@@ -32,7 +32,10 @@
     "react-native-screens": "~4.10.0",
     "react-native-timeline-flatlist": "^0.8.0",
     "react-native-webview": "^13.13.2",
-    "rm": "^0.1.8"
+    "rm": "^0.1.8",
+    "expo-network": "~7.1.5",
+    "expo-linking": "~7.1.7",
+    "expo-constants": "~17.1.7"
   },
   "devDependencies": {
     "@babel/core": "^7.26.8",

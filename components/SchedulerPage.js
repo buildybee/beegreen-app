@@ -8,183 +8,301 @@ import {
   TouchableOpacity,
   ScrollView,
   StatusBar,
-  Switch
+  Switch,
+  Modal,
+  Dimensions
 } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import Paho from "paho-mqtt";
-import { Picker } from "@react-native-picker/picker";
 import { useFocusEffect } from '@react-navigation/native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import Slider from '@react-native-community/slider';
+
+const { width } = Dimensions.get('window');
+
+// Custom Picker Component
+const CustomPicker = ({ items, selectedValue, onValueChange, label }) => {
+  const [visible, setVisible] = useState(false);
+
+  return (
+    <View style={styles.customPickerContainer}>
+      <TouchableOpacity 
+        onPress={() => setVisible(true)}
+        style={styles.customPickerButton}
+      >
+        <Text style={styles.customPickerText}>{selectedValue}</Text>
+        <MaterialCommunityIcons name="chevron-down" size={20} color="#0A4D68" />
+      </TouchableOpacity>
+      
+      <Modal visible={visible} transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <ScrollView style={styles.pickerScrollView}>
+              {items.map((item) => (
+                <TouchableOpacity 
+                  key={item.value} 
+                  onPress={() => {
+                    onValueChange(item.value);
+                    setVisible(false);
+                  }}
+                  style={[
+                    styles.pickerOption,
+                    selectedValue === item.value && styles.selectedOption
+                  ]}
+                >
+                  <Text style={[
+                    styles.pickerOptionText,
+                    selectedValue === item.value && styles.selectedOptionText
+                  ]}>
+                    {item.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+      <Text style={styles.pickerLabel}>{label}</Text>
+    </View>
+  );
+};
 
 const SchedulerPage = ({ navigation }) => {
-  // Initialize all state properly
-  const [savedData, setSavedData] = useState({
-    pumpStatus: "OFF",
-    pumpTime: "",
-    mqttServer: "",
-    mqttPort: "",
-    mqttUser: "",
-    mqttPassword: "",
-    scheduler: "",
+  const [currentSchedule, setCurrentSchedule] = useState({
+    hour: 8,
+    minute: 0,
+    ampm: 'AM',
+    duration: 60,
+    days: {
+      Sunday: false,
+      Monday: true,
+      Tuesday: true,
+      Wednesday: true,
+      Thursday: true,
+      Friday: true,
+      Saturday: false
+    },
+    editingIndex: null // Track which schedule is being edited
   });
 
-  const [selectedDays, setSelectedDays] = useState({
-    Sunday: false,
-    Monday: false,
-    Tuesday: false,
-    Wednesday: false,
-    Thursday: false,
-    Friday: false,
-    Saturday: false
-  });
-
-  const [scheduleIndex, setScheduleIndex] = useState(0);
-  const [selectedHour, setSelectedHour] = useState(0);
-  const [selectedMinute, setSelectedMinute] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [isEnabled, setIsEnabled] = useState(true);
+  const [savedSchedules, setSavedSchedules] = useState([]);
   const [isOnline, setIsOnline] = useState(false);
   const [client, setClient] = useState(null);
-  const [savedSchedules, setSavedSchedules] = useState([]);
-  const offlineTimerRef = useRef(null);
 
   // MQTT Configuration
   const mqttPort = 8884;
   const setScheduleTopic = "beegreen/set_schedule";
   const getScheduleTopic = "beegreen/get_schedule";
+  const deleteScheduleTopic = "beegreen/delete_schedule";
   const pumpStatusTopic = "beegreen/pump_status";
 
-  const calculateDaysBitmask = () => {
+  // Generate picker data
+  const hours = Array.from({ length: 12 }, (_, i) => ({ 
+    label: (i + 1).toString(), 
+    value: i + 1 
+  }));
+  
+  const minutes = Array.from({ length: 60 }, (_, i) => ({ 
+    label: i.toString().padStart(2, '0'), 
+    value: i 
+  }));
+  
+  const ampm = [
+    { label: 'AM', value: 'AM' },
+    { label: 'PM', value: 'PM' }
+  ];
+  
+  const durations = Array.from({ length: 301 }, (_, i) => ({ 
+    label: i.toString(), 
+    value: i 
+  }));
+
+  // Calculate days bitmask
+  const calculateDaysBitmask = (days) => {
     let bitmask = 0;
-    if (selectedDays.Sunday) bitmask |= 1;
-    if (selectedDays.Monday) bitmask |= 2;
-    if (selectedDays.Tuesday) bitmask |= 4;
-    if (selectedDays.Wednesday) bitmask |= 8;
-    if (selectedDays.Thursday) bitmask |= 16;
-    if (selectedDays.Friday) bitmask |= 32;
-    if (selectedDays.Saturday) bitmask |= 64;
+    if (days.Sunday) bitmask |= 1;
+    if (days.Monday) bitmask |= 2;
+    if (days.Tuesday) bitmask |= 4;
+    if (days.Wednesday) bitmask |= 8;
+    if (days.Thursday) bitmask |= 16;
+    if (days.Friday) bitmask |= 32;
+    if (days.Saturday) bitmask |= 64;
     return bitmask;
   };
 
-  useEffect(() => {
-    const fetchSavedData = async () => {
-      const config = await SecureStore.getItemAsync("config");
-      if (config) {
-        const parsedConfig = JSON.parse(config);
-        setSavedData({
-          pumpStatus: parsedConfig.pumpStatus || "OFF",
-          pumpTime: parsedConfig.pumpTime || "",
-          mqttServer: parsedConfig.mqttServer || "",
-          mqttPort: parsedConfig.mqttPort || "",
-          mqttUser: parsedConfig.mqttUser || "",
-          mqttPassword: parsedConfig.mqttPassword || "",
-          scheduler: parsedConfig.scheduler || "",
-        });
-      }
-    };
-    fetchSavedData();
-  }, []);
+  // Handle save/update schedule
+  const handleSaveSchedule = () => {
+    // Convert to 24-hour format
+    const hour24 = currentSchedule.ampm === 'PM' 
+      ? (currentSchedule.hour === 12 ? 12 : currentSchedule.hour + 12)
+      : (currentSchedule.hour === 12 ? 0 : currentSchedule.hour);
 
+    const daysBitmask = calculateDaysBitmask(currentSchedule.days);
+    const index = currentSchedule.editingIndex !== null ? currentSchedule.editingIndex : savedSchedules.length;
+    const payload = `${index}:${hour24}:${currentSchedule.minute}:${currentSchedule.duration}:${daysBitmask}:1`;
+
+    if (client && client.isConnected()) {
+      const message = new Paho.Message(payload);
+      message.destinationName = setScheduleTopic;
+      client.send(message);
+      
+      if (currentSchedule.editingIndex !== null) {
+        // Update existing schedule
+        const updatedSchedules = [...savedSchedules];
+        updatedSchedules[currentSchedule.editingIndex] = {
+          index: currentSchedule.editingIndex,
+          time: `${currentSchedule.hour}:${currentSchedule.minute.toString().padStart(2, '0')} ${currentSchedule.ampm}`,
+          duration: currentSchedule.duration,
+          days: currentSchedule.days
+        };
+        setSavedSchedules(updatedSchedules);
+        Alert.alert("Schedule Updated", `Schedule #${index} updated`);
+      } else {
+        // Add new schedule
+        if (savedSchedules.length >= 10) {
+          Alert.alert("Limit Reached", "Maximum 10 schedules allowed");
+          return;
+        }
+        setSavedSchedules([...savedSchedules, {
+          index: index,
+          time: `${currentSchedule.hour}:${currentSchedule.minute.toString().padStart(2, '0')} ${currentSchedule.ampm}`,
+          duration: currentSchedule.duration,
+          days: currentSchedule.days
+        }]);
+        Alert.alert("Schedule Added", `New schedule #${index} added`);
+      }
+
+      // Reset form
+      setCurrentSchedule({
+        hour: 8,
+        minute: 0,
+        ampm: 'AM',
+        duration: 60,
+        days: {
+          Sunday: false,
+          Monday: true,
+          Tuesday: true,
+          Wednesday: true,
+          Thursday: true,
+          Friday: true,
+          Saturday: false
+        },
+        editingIndex: null
+      });
+    } else {
+      Alert.alert("Error", "Not connected to device");
+    }
+  };
+
+  // Handle edit schedule
+  const handleEditSchedule = (index) => {
+    const scheduleToEdit = savedSchedules[index];
+    // Convert 24-hour to 12-hour format
+    const timeParts = scheduleToEdit.time.split(' ');
+    const [hourStr, minuteStr] = timeParts[0].split(':');
+    let hour = parseInt(hourStr);
+    const ampm = timeParts[1];
+    
+    if (ampm === 'PM' && hour !== 12) {
+      hour -= 12;
+    } else if (ampm === 'AM' && hour === 12) {
+      hour = 0;
+    }
+
+    setCurrentSchedule({
+      hour: hour,
+      minute: parseInt(minuteStr),
+      ampm: ampm,
+      duration: scheduleToEdit.duration,
+      days: scheduleToEdit.days,
+      editingIndex: index
+    });
+  };
+
+  // Handle delete schedule
+  const handleDeleteSchedule = (index) => {
+    Alert.alert(
+      "Confirm Delete",
+      "Are you sure you want to delete this schedule?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        { 
+          text: "Delete", 
+          onPress: () => {
+            if (client && client.isConnected()) {
+              const message = new Paho.Message(index.toString());
+              message.destinationName = deleteScheduleTopic;
+              client.send(message);
+              
+              const updatedSchedules = savedSchedules.filter((_, i) => i !== index);
+              setSavedSchedules(updatedSchedules);
+              Alert.alert("Schedule Deleted", `Schedule #${index} removed`);
+            } else {
+              Alert.alert("Error", "Not connected to device");
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // MQTT initialization
   useFocusEffect(
     React.useCallback(() => {
-      const initializeMqtt = () => {
-        if (savedData.mqttServer) {
+      const initializeMqtt = async () => {
+        const config = await SecureStore.getItemAsync("config");
+        if (config) {
+          const { mqttServer, mqttUser, mqttPassword } = JSON.parse(config);
+          
           const mqttClient = new Paho.Client(
-            savedData.mqttServer,
+            mqttServer,
             mqttPort,
             "clientId-" + Math.random().toString(16).substr(2, 8)
           );
 
-		mqttClient.onMessageArrived = (message) => {
-		  console.log("Message received:", message.destinationName, message.payloadString);
-		  
-		  // Device is online if we receive pump status messages
-		  if (message.destinationName === pumpStatusTopic) {
-			setIsOnline(true);
-			if (offlineTimerRef.current) {
-			  clearTimeout(offlineTimerRef.current);
-			}
-			offlineTimerRef.current = setTimeout(() => {
-			  setIsOnline(false);
-			}, 30000);
-		  }
-		  
-		  if (message.destinationName === getScheduleTopic) {
-			try {
-			  let schedules;
-			  // Try to parse as JSON first
-			  try {
-				schedules = JSON.parse(message.payloadString);
-			  } catch (e) {
-				// If not JSON, treat as raw string
-				schedules = message.payloadString;
-			  }
-			  setSavedSchedules(schedules);
-			} catch (error) {
-			  console.error("Error handling schedules:", error);
-			}
-		  }
-		};
+          mqttClient.onMessageArrived = (message) => {
+            if (message.destinationName === getScheduleTopic) {
+              try {
+                const schedules = JSON.parse(message.payloadString);
+                setSavedSchedules(schedules);
+              } catch {
+                console.log("Received non-JSON schedule data");
+              }
+            }
+          };
+
           mqttClient.onConnectionLost = (response) => {
-            console.log("Connection lost:", response.errorMessage);
             setIsOnline(false);
           };
 
           mqttClient.connect({
             onSuccess: () => {
-              console.log("Connected to MQTT broker");
-              mqttClient.subscribe(pumpStatusTopic);
+              setIsOnline(true);
               mqttClient.subscribe(getScheduleTopic);
-              // Request current schedules
               const msg = new Paho.Message("request");
               msg.destinationName = getScheduleTopic;
               mqttClient.send(msg);
             },
             onFailure: (err) => {
-              console.error("Connection failed", err);
               setIsOnline(false);
             },
             useSSL: true,
-            userName: savedData.mqttUser,
-            password: savedData.mqttPassword,
+            userName: mqttUser,
+            password: mqttPassword,
           });
 
           setClient(mqttClient);
-
           return () => {
-            if (mqttClient.isConnected()) {
-              mqttClient.disconnect();
-            }
-            if (offlineTimerRef.current) {
-              clearTimeout(offlineTimerRef.current);
-            }
+            if (mqttClient.isConnected()) mqttClient.disconnect();
           };
         }
       };
 
       initializeMqtt();
-    }, [savedData.mqttServer, savedData.mqttUser, savedData.mqttPassword])
+    }, [])
   );
-
-  const handleSetSchedule = () => {
-    const daysBitmask = calculateDaysBitmask();
-    const payload = `${scheduleIndex}:${selectedHour}:${selectedMinute}:${duration}:${daysBitmask}:${isEnabled ? 1 : 0}`;
-    
-    if (client && client.isConnected()) {
-      const message = new Paho.Message(payload);
-      message.destinationName = setScheduleTopic;
-      client.send(message);
-      Alert.alert("Schedule Set", `Schedule #${scheduleIndex} configured`);
-      
-      // Request updated schedules
-      const msg = new Paho.Message("request");
-      msg.destinationName = getScheduleTopic;
-      client.send(msg);
-    } else {
-      Alert.alert("Error", "Not connected to MQTT broker");
-    }
-  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -203,81 +321,50 @@ const SchedulerPage = ({ navigation }) => {
             <Text style={styles.statusText}>{isOnline ? 'Online' : 'Offline'}</Text>
           </View>
         </View>
+        <Text style={styles.scheduleCount}>
+          {savedSchedules.length}/10 schedules configured
+        </Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-        {/* Schedule Slot Selection */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <MaterialCommunityIcons name="calendar-edit" size={24} color="#0A4D68" />
-            <Text style={styles.cardTitle}>Schedule Slot</Text>
-          </View>
-          <Picker
-            selectedValue={scheduleIndex}
-            onValueChange={setScheduleIndex}
-            style={styles.picker}
-          >
-            {[...Array(10).keys()].map(i => (
-              <Picker.Item key={i} label={`Schedule #${i}`} value={i} />
-            ))}
-          </Picker>
-        </View>
-
-        {/* Time Selection */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <MaterialCommunityIcons name="clock-outline" size={24} color="#0A4D68" />
-            <Text style={styles.cardTitle}>Start Time</Text>
-          </View>
-          <View style={styles.timeContainer}>
-            <View style={styles.timePicker}>
-              <Text style={styles.timeLabel}>Hour</Text>
-              <Slider
-                minimumValue={0}
-                maximumValue={23}
-                step={1}
-                value={selectedHour}
-                onValueChange={setSelectedHour}
-                minimumTrackTintColor="#0A4D68"
-                maximumTrackTintColor="#E2E8F0"
-                thumbTintColor="#0A4D68"
+        {/* Time and Duration Selectors */}
+        <View style={styles.timeDurationContainer}>
+          {/* Start Time */}
+          <View style={styles.selectorColumn}>
+            <Text style={styles.selectorLabel}>Start Time</Text>
+            <View style={styles.pickerRow}>
+              <CustomPicker
+                items={hours}
+                selectedValue={currentSchedule.hour}
+                onValueChange={(h) => setCurrentSchedule({...currentSchedule, hour: h})}
+                label="Hour"
               />
-              <Text style={styles.timeValue}>{selectedHour}:{selectedMinute.toString().padStart(2, '0')}</Text>
-            </View>
-            <View style={styles.timePicker}>
-              <Text style={styles.timeLabel}>Minute</Text>
-              <Slider
-                minimumValue={0}
-                maximumValue={59}
-                step={1}
-                value={selectedMinute}
-                onValueChange={setSelectedMinute}
-                minimumTrackTintColor="#0A4D68"
-                maximumTrackTintColor="#E2E8F0"
-                thumbTintColor="#0A4D68"
+              <CustomPicker
+                items={minutes}
+                selectedValue={currentSchedule.minute}
+                onValueChange={(m) => setCurrentSchedule({...currentSchedule, minute: m})}
+                label="Min"
+              />
+              <CustomPicker
+                items={ampm}
+                selectedValue={currentSchedule.ampm}
+                onValueChange={(a) => setCurrentSchedule({...currentSchedule, ampm: a})}
+                label="AM/PM"
               />
             </View>
           </View>
-        </View>
 
-        {/* Duration Selection */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <MaterialCommunityIcons name="timer-outline" size={24} color="#0A4D68" />
-            <Text style={styles.cardTitle}>Duration</Text>
-          </View>
-          <View style={styles.durationContainer}>
-            <Text style={styles.durationLabel}>{duration} seconds</Text>
-            <Slider
-              minimumValue={0}
-              maximumValue={3600}
-              step={1}
-              value={duration}
-              onValueChange={setDuration}
-              minimumTrackTintColor="#0A4D68"
-              maximumTrackTintColor="#E2E8F0"
-              thumbTintColor="#0A4D68"
-            />
+          {/* Duration */}
+          <View style={styles.selectorColumn}>
+            <Text style={styles.selectorLabel}>Duration</Text>
+            <View style={styles.pickerRow}>
+              <CustomPicker
+                items={durations}
+                selectedValue={currentSchedule.duration}
+                onValueChange={(d) => setCurrentSchedule({...currentSchedule, duration: d})}
+                label="Seconds"
+              />
+            </View>
           </View>
         </View>
 
@@ -287,12 +374,15 @@ const SchedulerPage = ({ navigation }) => {
             <MaterialCommunityIcons name="calendar-week" size={24} color="#0A4D68" />
             <Text style={styles.cardTitle}>Repeat Days</Text>
           </View>
-          {Object.keys(selectedDays).map(day => (
+          {Object.keys(currentSchedule.days).map(day => (
             <View key={day} style={styles.dayRow}>
               <Text style={styles.dayLabel}>{day}</Text>
               <Switch
-                value={selectedDays[day]}
-                onValueChange={(value) => setSelectedDays({...selectedDays, [day]: value})}
+                value={currentSchedule.days[day]}
+                onValueChange={(value) => setCurrentSchedule({
+                  ...currentSchedule,
+                  days: {...currentSchedule.days, [day]: value}
+                })}
                 trackColor={{ false: "#E2E8F0", true: "#0A4D68" }}
                 thumbColor="#fff"
               />
@@ -300,49 +390,87 @@ const SchedulerPage = ({ navigation }) => {
           ))}
         </View>
 
-        {/* Enable/Disable */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <MaterialCommunityIcons name="power" size={24} color="#0A4D68" />
-            <Text style={styles.cardTitle}>Status</Text>
-          </View>
-          <View style={styles.enableRow}>
-            <Text style={styles.enableLabel}>{isEnabled ? 'Enabled' : 'Disabled'}</Text>
-            <Switch
-              value={isEnabled}
-              onValueChange={setIsEnabled}
-              trackColor={{ false: "#E2E8F0", true: "#0A4D68" }}
-              thumbColor="#fff"
-            />
-          </View>
-        </View>
-
-        {/* Set Schedule Button - Now visible at the bottom */}
+        {/* Save/Update Button */}
         <TouchableOpacity 
-          style={[styles.setButton, { opacity: isOnline ? 1 : 0.5 }]} 
-          onPress={handleSetSchedule}
-          disabled={!isOnline}
+          style={[
+            styles.addButton, 
+            { 
+              backgroundColor: isOnline ? '#0A4D68' : '#CCCCCC',
+              opacity: (savedSchedules.length >= 10 && currentSchedule.editingIndex === null) ? 0.5 : 1
+            }
+          ]} 
+          onPress={handleSaveSchedule}
+          disabled={!isOnline || (savedSchedules.length >= 10 && currentSchedule.editingIndex === null)}
         >
-          <Text style={styles.setButtonText}>SET SCHEDULE</Text>
+          <MaterialCommunityIcons 
+            name={currentSchedule.editingIndex !== null ? "content-save" : "plus"} 
+            size={24} 
+            color="#fff" 
+          />
+          <Text style={styles.addButtonText}>
+            {currentSchedule.editingIndex !== null ? "UPDATE SCHEDULE" : "ADD SCHEDULE"}
+          </Text>
         </TouchableOpacity>
 
-        {/* Display saved schedules */}
-        {savedSchedules && (
-        <View style={styles.schedulesCard}>
-          <Text style={styles.schedulesTitle}>Active Schedules</Text>
-          {Array.isArray(savedSchedules) ? (
-            savedSchedules.map((sched, index) => (
-              <Text key={index} style={styles.scheduleItem}>
-                #{index}: {JSON.stringify(sched)}
-              </Text>
-            ))
-          ) : (
-            <Text style={styles.scheduleItem}>{savedSchedules}</Text>
-          )}
-        </View>
-      )}
-      </ScrollView>
+        {/* Cancel Edit Button (only shown when editing) */}
+        {currentSchedule.editingIndex !== null && (
+          <TouchableOpacity 
+            style={[styles.cancelButton, { backgroundColor: '#F44336' }]} 
+            onPress={() => setCurrentSchedule({
+              hour: 8,
+              minute: 0,
+              ampm: 'AM',
+              duration: 60,
+              days: {
+                Sunday: false,
+                Monday: true,
+                Tuesday: true,
+                Wednesday: true,
+                Thursday: true,
+                Friday: true,
+                Saturday: false
+              },
+              editingIndex: null
+            })}
+          >
+            <MaterialCommunityIcons name="close" size={24} color="#fff" />
+            <Text style={styles.addButtonText}>CANCEL EDIT</Text>
+          </TouchableOpacity>
+        )}
 
+        {/* Active Schedules List */}
+        {savedSchedules.length > 0 && (
+          <View style={styles.schedulesCard}>
+            <Text style={styles.schedulesTitle}>Active Schedules</Text>
+            {savedSchedules.map((schedule, index) => (
+              <View key={index} style={styles.scheduleItem}>
+                <View style={styles.scheduleInfo}>
+                  <Text style={styles.scheduleText}>
+                    #{index}: {schedule.time} for {schedule.duration}s
+                  </Text>
+                  <Text style={styles.scheduleDays}>
+                    {Object.keys(schedule.days).filter(day => schedule.days[day]).join(', ')}
+                  </Text>
+                </View>
+                <View style={styles.scheduleActions}>
+                  <TouchableOpacity 
+                    onPress={() => handleEditSchedule(index)}
+                    style={styles.actionButton}
+                  >
+                    <MaterialCommunityIcons name="pencil" size={20} color="#0A4D68" />
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    onPress={() => handleDeleteSchedule(index)}
+                    style={styles.actionButton}
+                  >
+                    <MaterialCommunityIcons name="delete" size={20} color="#F44336" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -380,7 +508,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   statusLabel: {
     fontSize: 16,
@@ -402,8 +530,90 @@ const styles = StyleSheet.create({
     color: '#2D3748',
     fontWeight: '600',
   },
+  scheduleCount: {
+    fontSize: 14,
+    color: '#718096',
+    textAlign: 'center',
+    marginTop: 8,
+  },
   content: {
     paddingBottom: 20,
+  },
+  timeDurationContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginHorizontal: 16,
+    marginBottom: 16,
+  },
+  selectorColumn: {
+    flex: 1,
+    marginHorizontal: 8,
+  },
+  selectorLabel: {
+    fontSize: 16,
+    color: '#4A5568',
+    fontWeight: '500',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  pickerRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  customPickerContainer: {
+    flex: 1,
+    marginHorizontal: 4,
+    alignItems: 'center',
+  },
+  customPickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F5F7F8',
+    borderRadius: 8,
+    padding: 10,
+    width: '100%',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  customPickerText: {
+    fontSize: 16,
+    color: '#0A4D68',
+  },
+  pickerLabel: {
+    fontSize: 12,
+    color: '#718096',
+    marginTop: 4,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    margin: 20,
+    borderRadius: 10,
+    maxHeight: 300,
+  },
+  pickerScrollView: {
+    padding: 10,
+  },
+  pickerOption: {
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  pickerOptionText: {
+    fontSize: 16,
+    color: '#4A5568',
+  },
+  selectedOption: {
+    backgroundColor: '#F0F4FF',
+  },
+  selectedOptionText: {
+    color: '#0A4D68',
+    fontWeight: 'bold',
   },
   card: {
     backgroundColor: '#fff',
@@ -428,40 +638,6 @@ const styles = StyleSheet.create({
     color: '#0A4D68',
     marginLeft: 10,
   },
-  picker: {
-    backgroundColor: '#F5F7F8',
-    borderRadius: 8,
-    marginTop: 10,
-  },
-  timeContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  timePicker: {
-    width: '48%',
-  },
-  timeLabel: {
-    fontSize: 14,
-    color: '#718096',
-    marginBottom: 8,
-  },
-  timeValue: {
-    fontSize: 16,
-    color: '#0A4D68',
-    fontWeight: '600',
-    textAlign: 'center',
-    marginTop: 8,
-  },
-  durationContainer: {
-    paddingHorizontal: 8,
-  },
-  durationLabel: {
-    fontSize: 16,
-    color: '#0A4D68',
-    fontWeight: '600',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
   dayRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -474,39 +650,45 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#4A5568',
   },
-  enableRow: {
+  addButton: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-  },
-  enableLabel: {
-    fontSize: 16,
-    color: '#4A5568',
-  },
-  setButton: {
-    backgroundColor: '#0A4D68',
+    justifyContent: 'center',
     borderRadius: 12,
     padding: 16,
     marginHorizontal: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
+    marginBottom: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 6,
     elevation: 3,
-    marginTop: 16,
   },
-  setButtonText: {
+  cancelButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    padding: 16,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  addButtonText: {
     color: '#fff',
     fontSize: 18,
     fontWeight: '600',
+    marginLeft: 10,
   },
   schedulesCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 16,
-    margin: 16,
+    marginHorizontal: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -520,9 +702,31 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   scheduleItem: {
-    fontSize: 14,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  scheduleInfo: {
+    flex: 1,
+  },
+  scheduleText: {
+    fontSize: 16,
     color: '#4A5568',
-    marginBottom: 8,
+  },
+  scheduleDays: {
+    fontSize: 14,
+    color: '#718096',
+    marginTop: 4,
+  },
+  scheduleActions: {
+    flexDirection: 'row',
+  },
+  actionButton: {
+    marginLeft: 15,
   },
 });
 

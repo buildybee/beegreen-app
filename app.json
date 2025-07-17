@@ -27,7 +27,25 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.buildybee.beegreen"
+      "package": "com.buildybee.beegreen",
+	  "permissions": [
+        "android.permission.ACCESS_WIFI_STATE",
+        "android.permission.CHANGE_WIFI_STATE",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.INTERNET"
+      ],
+      "usesCleartextTraffic": true
+    },
+	"ios": {
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        },
+        "NSLocationWhenInUseUsageDescription": "This app needs location permission to scan for WiFi networks"
+      },
     },
     "web": {
       "favicon": "./assets/favicon.png"
