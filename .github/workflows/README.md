@@ -51,4 +51,50 @@ When the workflow completes:
 1. Go to the workflow run in the Actions tab
 2. Scroll down to the "Artifacts" section
 3. Download the `android-apk-[commit-hash]` file
-4. Extract and install the APK on your Android device 
+4. Extract and install the APK on your Android device
+
+## Code Quality Workflow
+
+This repository also includes automated code quality checks that run on every PR:
+
+### Checks Performed
+
+1. **ESLint**: JavaScript/TypeScript linting
+2. **Prettier**: Code formatting validation
+3. **TypeScript**: Type checking
+4. **Security Audit**: Dependency vulnerability scanning
+5. **Bundle Analysis**: Build size impact analysis
+6. **License Check**: Package license validation
+
+### Local Development
+
+Before committing, you can run these commands:
+
+```bash
+# Run all quality checks
+npm run validate
+
+# Fix linting issues
+npm run lint:fix
+
+# Format code
+npm run format
+
+# Type check only
+npm run type-check
+```
+
+### Pre-commit Hooks
+
+The project uses Husky to run automatic checks before commits:
+- Linting and auto-fixing
+- Code formatting
+- Type checking
+
+### Setup for New Contributors
+
+After cloning, run:
+```bash
+npm install
+npm run prepare  # Sets up pre-commit hooks
+``` 
