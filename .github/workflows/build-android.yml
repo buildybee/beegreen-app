@@ -1,0 +1,116 @@
+name: Build Android App on PR
+
+on:
+  pull_request:
+    branches: [ main, master, app-debasish ]
+    types: [ opened, synchronize, reopened ]
+
+jobs:
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup Expo CLI
+        run: npm install -g @expo/cli
+
+      - name: Create local.properties
+        run: |
+          echo "sdk.dir=/opt/android" > android/local.properties
+          echo "ndk.dir=/opt/ndk" >> android/local.properties
+
+      - name: Generate Expo Android project
+        run: |
+          npx expo install --fix
+          rm -rf android
+          npx expo prebuild --platform android
+
+      - name: Setup Gradle wrapper permissions
+        run: chmod +x android/gradlew
+
+      - name: Build Android APK
+        run: |
+          cd android
+          ./gradlew assembleRelease
+        env:
+          ANDROID_HOME: /opt/android
+          ANDROID_SDK_ROOT: /opt/android
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk-${{ github.sha }}
+          path: android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 30
+
+      - name: Comment PR with build info
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const buildStatus = '${{ job.status }}' === 'success' ? '✅ Success' : '❌ Failed';
+            
+            let apkSize = 'Unknown';
+            try {
+              const apkPath = 'android/app/build/outputs/apk/release/app-release.apk';
+              if (fs.existsSync(apkPath)) {
+                const stats = fs.statSync(apkPath);
+                apkSize = `${(stats.size / (1024 * 1024)).toFixed(2)} MB`;
+              }
+            } catch (error) {
+              console.log('Could not get APK size:', error.message);
+            }
+            
+            const workflowUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${{ github.run_id }}`;
+            const artifactUrl = `${workflowUrl}#artifacts`;
+            
+            const comment = `
+            ## 📱 Android Build ${buildStatus}
+            
+            **Build Type:** Container Build (React Native)  
+            **Platform:** Android  
+            **Commit:** ${context.sha.substring(0, 7)}
+            **APK Size:** ${apkSize}
+            **Build Time:** ~45 minutes
+            
+            ${buildStatus === '✅ Success' ? 
+              `🎉 **The Android APK has been built successfully!**
+              
+              ### 📥 Download APK:
+              1. **[Go to Workflow Run](${workflowUrl})**
+              2. **[Direct to Artifacts](${artifactUrl})** 
+              3. Download \`android-apk-${context.sha.substring(0, 7)}\`
+              4. Extract and install the APK
+              
+              ### 📋 Installation:
+              - Enable "Install from Unknown Sources" on your Android device
+              - Transfer the APK to your device and install
+              ` : 
+              `❌ **The Android build failed.**
+              
+              ### 🔍 Debugging:
+              - [Check build logs](${workflowUrl})
+              - Review error messages in the workflow output
+              - Verify all dependencies are compatible`}
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            }); 
