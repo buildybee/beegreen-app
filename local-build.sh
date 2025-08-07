@@ -46,13 +46,13 @@ podman run -it --rm \
     mkdir -p android
     echo 'sdk.dir=/opt/android' > android/local.properties
     echo 'ndk.dir=/opt/ndk' >> android/local.properties
-    
+      
+    # Clean any existing android directory
+    rm -rf android
+
     echo ''
     echo '🏗️  Running Expo prebuild...'
     npx expo install --fix
-    
-    # Clean any existing android directory
-    rm -rf android
     
     npx expo prebuild --platform android
     

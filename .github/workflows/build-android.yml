@@ -33,8 +33,8 @@ jobs:
 
       - name: Generate Expo Android project
         run: |
-          npx expo install --fix
           rm -rf android
+          npx expo install --fix
           npx expo prebuild --platform android
 
       - name: Setup Gradle wrapper permissions
