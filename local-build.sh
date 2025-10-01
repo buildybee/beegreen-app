@@ -13,6 +13,13 @@ WORKSPACE_DIR="/workspace"
 echo "🧹 Cleaning up existing containers..."
 podman rm -f $CONTAINER_NAME 2>/dev/null || true
 
+# Fix permissions on existing node_modules if created by root previously
+echo "🔐 Checking permissions on node_modules..."
+if [ -d node_modules ] && [ ! -w node_modules ]; then
+  echo "   Fixing ownership of node_modules to $(id -u):$(id -g)"
+  podman unshare chown -R $(id -u):$(id -g) node_modules || true
+fi
+
 # Pull the latest image
 echo "📦 Pulling React Native Android container..."
 podman pull $CONTAINER_IMAGE
@@ -23,59 +30,12 @@ podman run -it --rm \
   --name $CONTAINER_NAME \
   -v "$(pwd):$WORKSPACE_DIR:Z" \
   -w $WORKSPACE_DIR \
-  --user root \
+  --user $(id -u):$(id -g) \
   $CONTAINER_IMAGE \
-  bash -c "
+  bash -s <<'BASH_EOF'
     set -e
-    echo '📋 Environment setup:'
-    echo 'Node version:' \$(node --version)
-    echo 'NPM version:' \$(npm --version)
-    echo 'Android SDK:' \$ANDROID_HOME
-    echo 'Java version:' \$(java -version 2>&1 | head -1)
-    
-    echo ''
-    echo '📦 Installing dependencies...'
-    npm ci
-    
-    echo ''
-    echo '🔧 Installing Expo CLI...'
-    npm install -g @expo/cli
-    
-    echo ''
-    echo '📱 Setting up Android build environment...'
-    mkdir -p android
-    echo 'sdk.dir=/opt/android' > android/local.properties
-    echo 'ndk.dir=/opt/ndk' >> android/local.properties
-      
-    # Clean any existing android directory
-    rm -rf android
-
-    echo ''
-    echo '🏗️  Running Expo prebuild...'
-    npx expo install --fix
-    
-    npx expo prebuild --platform android
-    
-    echo ''
-    echo '🔨 Building Android APK...'
-    cd android
-    chmod +x gradlew
-    ./gradlew assembleRelease
-    
-    echo ''
-    echo '✅ Build completed!'
-    echo 'APK location: android/app/build/outputs/apk/release/app-release.apk'
-    
-    # Check if APK was created and show its size
-    if [ -f app/build/outputs/apk/release/app-release.apk ]; then
-      APK_SIZE=\$(du -h app/build/outputs/apk/release/app-release.apk | cut -f1)
-      echo \"📱 APK size: \$APK_SIZE\"
-      ls -la app/build/outputs/apk/release/app-release.apk
-    else
-      echo '❌ APK not found!'
-      exit 1
-    fi
-  "
+    ALLOW_NPM_INSTALL_FALLBACK=1 bash scripts/build-android-inner.sh
+BASH_EOF
 
 echo ""
 echo "🎉 Local build completed!"
