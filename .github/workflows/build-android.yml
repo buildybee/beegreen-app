@@ -35,10 +35,10 @@ jobs:
         uses: android-actions/setup-android@v3
         with:
           packages: |
-            platform-tools
-            platforms;android-35
-            build-tools;35.0.0
-            cmdline-tools;latest
+            platform-tools \
+            platforms;android-35 \
+            build-tools;35.0.0 \
+            cmdline-tools;latest \
             ndk;27.1.12297006
 
       - name: Install dependencies
