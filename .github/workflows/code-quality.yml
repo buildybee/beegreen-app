@@ -1,0 +1,97 @@
+name: Code Quality Checks
+
+on:
+  pull_request:
+    branches: [ main, master, app-debasish ]
+    types: [ opened, synchronize, reopened ]
+  push:
+    branches: [ main, master, app-debasish ]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  code-quality:
+    name: Code Quality & Linting
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        env:
+          HUSKY: 0
+          CI: true
+        run: npm ci --no-audit --no-fund
+
+      - id: lint
+        name: Run ESLint
+        run: |
+          echo "🔍 Running ESLint..."
+          npm run lint
+        continue-on-error: false
+
+      - id: format
+        name: Check Prettier formatting
+        run: |
+          echo "✨ Checking code formatting with Prettier..."
+          npm run format:check
+        continue-on-error: false
+
+      - id: type-check
+        name: Run TypeScript type checking
+        run: |
+          echo "🔧 Running TypeScript type checking..."
+          npm run type-check
+        continue-on-error: false
+
+      - name: Check for unused dependencies
+        run: |
+          echo "📦 Checking for unused dependencies..."
+          npx depcheck --ignores="@types/*,eslint-*,prettier,typescript,@babel/*,metro-*"
+        continue-on-error: true
+
+      - name: Security audit
+        run: |
+          echo "🔒 Running security audit..."
+          npm audit --audit-level=moderate || true
+        continue-on-error: true
+
+
+  dependency-check:
+    name: Dependency Analysis
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check bundle size impact
+        run: |
+          echo "📊 Analyzing bundle size impact..."
+          npx expo export --platform web --dev false || echo "Bundle analysis completed"
+        continue-on-error: true
+
+      - name: License check
+        run: |
+          echo "📄 Checking package licenses..."
+          npx license-checker --summary
+        continue-on-error: true 

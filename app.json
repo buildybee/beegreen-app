@@ -13,30 +13,6 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "infoPlist": {
-        "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": true
-        },
-        "ITSAppUsesNonExemptEncryption": false
-      },
-      "supportsTablet": true,
-      "bundleIdentifier": "com.buildybee.beegreen"
-    },
-    "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
-      },
-      "package": "com.buildybee.beegreen",
-	  "permissions": [
-        "android.permission.ACCESS_WIFI_STATE",
-        "android.permission.CHANGE_WIFI_STATE",
-        "android.permission.ACCESS_NETWORK_STATE",
-        "android.permission.INTERNET"
-      ],
-      "usesCleartextTraffic": true
-    },
-	"ios": {
       "config": {
         "usesNonExemptEncryption": false
       },
@@ -45,7 +21,21 @@
           "NSAllowsArbitraryLoads": true
         },
         "NSLocationWhenInUseUsageDescription": "This app needs location permission to scan for WiFi networks"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
       },
+      "package": "com.buildybee.beegreen",
+      "permissions": [
+        "android.permission.ACCESS_WIFI_STATE",
+        "android.permission.CHANGE_WIFI_STATE",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.INTERNET"
+      ],
+      "usesCleartextTraffic": true
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -59,7 +49,9 @@
             "usesCleartextTraffic": true
           }
         }
-      ]
+      ],
+      "expo-asset",
+      "expo-font"
     ],
     "extra": {
       "eas": {
