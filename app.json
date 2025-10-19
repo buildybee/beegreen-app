@@ -50,7 +50,6 @@
           }
         }
       ],
-      "expo-asset",
       "expo-font"
     ],
     "extra": {

@@ -10,7 +10,9 @@ import {
   Modal, 
   ScrollView,
   ActivityIndicator,
-  Linking
+  Linking,
+  KeyboardAvoidingView,
+  Platform
 } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import * as SecureStore from "expo-secure-store";
@@ -36,6 +38,9 @@ const LoginPage = ({ navigation }) => {
   const [showWifiForm, setShowWifiForm] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
+  
+  const [showMqttPassword, setShowMqttPassword] = useState(false);
+  const [showWifiPassword, setShowWifiPassword] = useState(false);
 
   // Enhanced fetch with Android compatibility
   const deviceFetch = async (url, options = {}) => {
@@ -85,9 +90,10 @@ const LoginPage = ({ navigation }) => {
       // Check if connected to WiFi
       const { isConnected } = await Network.getNetworkStateAsync();
       if (!isConnected) {
+        Alert.alert("Verify if your Mobile Data is disbaled");
         Alert.alert(
           "Not Connected",
-          "Please connect to your device's WiFi network first",
+          "Please connect to your BeeGreen's WiFi network first",
           [
             { text: 'Open WiFi Settings', onPress: () => Linking.openSettings() },
             { text: 'OK' }
@@ -168,6 +174,7 @@ const LoginPage = ({ navigation }) => {
       
       await SecureStore.setItemAsync("config", JSON.stringify(config));
       Alert.alert("Success", "MQTT configuration saved successfully!");
+      Alert.alert("Do ADD DEVICE if device not added");
     } catch (error) {
       console.error("Connection error:", error);
       Alert.alert("Error", `Failed to connect to MQTT broker: ${error.message}`);
@@ -177,83 +184,83 @@ const LoginPage = ({ navigation }) => {
   };
 
   const scanWifiNetworks = async () => {
-  try {
-    setIsScanning(true);
-    
-    if (!(await checkDeviceConnection())) return;
-
-    // First try the standard endpoint
-    let response = await deviceFetch('http://192.168.4.1/wifiscan');
-    let data = await response.text(); // Get raw response first
-    
-    // Try to parse as JSON, fallback to plain text
     try {
-      data = JSON.parse(data);
-    } catch (e) {
-      console.log('Response not JSON, trying alternative endpoints');
+      setIsScanning(true);
       
-      // Try common alternative endpoints
-      const endpoints = [
-        'http://192.168.4.1/scan',
-        'http://192.168.4.1/wifiscan',
-        'http://192.168.4.1/wifi-scan'
-      ];
+      if (!(await checkDeviceConnection())) return;
+
+      // First try the standard endpoint
+      let response = await deviceFetch('http://192.168.4.1/wifiscan');
+      let data = await response.text(); // Get raw response first
       
-      for (const endpoint of endpoints) {
-        try {
-          response = await deviceFetch(endpoint);
-          data = await response.json();
-          break; // Exit loop if successful
-        } catch (err) {
-          console.log(`Failed on ${endpoint}`, err);
+      // Try to parse as JSON, fallback to plain text
+      try {
+        data = JSON.parse(data);
+      } catch (e) {
+        console.log('Response not JSON, trying alternative endpoints');
+        
+        // Try common alternative endpoints
+        const endpoints = [
+          'http://192.168.4.1/scan',
+          'http://192.168.4.1/wifiscan',
+          'http://192.168.4.1/wifi-scan'
+        ];
+        
+        for (const endpoint of endpoints) {
+          try {
+            response = await deviceFetch(endpoint);
+            data = await response.json();
+            break; // Exit loop if successful
+          } catch (err) {
+            console.log(`Failed on ${endpoint}`, err);
+          }
         }
       }
-    }
 
-    console.log('Final scan response:', data);
-    
-    // Handle different response formats
-    if (typeof data === 'string') {
-      // If response is plain text, try to extract networks
-      const networks = data.split('\n')
-        .filter(line => line.includes('SSID:'))
-        .map(line => {
-          const ssid = line.replace('SSID:', '').trim();
-          return { ssid, rssi: -50 }; // Default signal strength
-        });
+      console.log('Final scan response:', data);
       
-      if (networks.length > 0) {
-        setWifiNetworks(networks);
-        setShowWifiModal(true);
-        return;
+      // Handle different response formats
+      if (typeof data === 'string') {
+        // If response is plain text, try to extract networks
+        const networks = data.split('\n')
+          .filter(line => line.includes('SSID:'))
+          .map(line => {
+            const ssid = line.replace('SSID:', '').trim();
+            return { ssid, rssi: -50 }; // Default signal strength
+          });
+        
+        if (networks.length > 0) {
+          setWifiNetworks(networks);
+          setShowWifiModal(true);
+          return;
+        }
+        throw new Error("No networks found in text response");
       }
-      throw new Error("No networks found in text response");
+      else if (Array.isArray(data)) {
+        // Handle array response format
+        setWifiNetworks(data);
+        setShowWifiModal(true);
+      }
+      else if (data.networks) {
+        // Handle object with networks property
+        setWifiNetworks(data.networks);
+        setShowWifiModal(true);
+      }
+      else {
+        throw new Error("Unexpected response format");
+      }
+    } catch (error) {
+      console.error('WiFi Scan Error:', error);
+      Alert.alert(
+        "Scan Failed",
+        error.message.includes("No networks")
+          ? "No WiFi networks found. Please ensure:\n\n1. Your device has WiFi capability\n2. There are networks in range\n3. The device firmware supports scanning"
+          : error.message
+      );
+    } finally {
+      setIsScanning(false);
     }
-    else if (Array.isArray(data)) {
-      // Handle array response format
-      setWifiNetworks(data);
-      setShowWifiModal(true);
-    }
-    else if (data.networks) {
-      // Handle object with networks property
-      setWifiNetworks(data.networks);
-      setShowWifiModal(true);
-    }
-    else {
-      throw new Error("Unexpected response format");
-    }
-  } catch (error) {
-    console.error('WiFi Scan Error:', error);
-    Alert.alert(
-      "Scan Failed",
-      error.message.includes("No networks")
-        ? "No WiFi networks found. Please ensure:\n\n1. Your device has WiFi capability\n2. There are networks in range\n3. The device firmware supports scanning"
-        : error.message
-    );
-  } finally {
-    setIsScanning(false);
-  }
-};
+  };
 
   const handleWifiSelect = (wifi) => {
     setSelectedWifi(wifi);
@@ -313,72 +320,94 @@ const LoginPage = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.signupContainer}>
-        <Text style={styles.signupText}>BeeGreen</Text>
-        <Text style={styles.subtitle}>Enter MQTT connection details</Text>
-        
-        <TextInput
-          style={styles.input}
-          placeholder="Enter MQTT User"
-          placeholderTextColor="#aaa"
-          value={mqttUser}
-          onChangeText={setMqttUser}
-          autoCapitalize="none"
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Enter MQTT Password"
-          placeholderTextColor="#aaa"
-          value={mqttPassword}
-          onChangeText={setMqttPassword}
-          secureTextEntry={true}
-          autoCapitalize="none"
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Enter MQTT Server"
-          placeholderTextColor="#aaa"
-          value={mqttServer}
-          onChangeText={setMqttServer}
-          autoCapitalize="none"
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Enter MQTT Port"
-          placeholderTextColor="#aaa"
-          value={mqttPort}
-          onChangeText={setMqttPort}
-          keyboardType="numeric"
-        />
-        
-        <TouchableOpacity 
-          style={styles.signupButton} 
-          onPress={handleLogin}
-          activeOpacity={0.8}
-          disabled={isConnecting}
+      <KeyboardAvoidingView 
+        style={styles.keyboardAvoidingView}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+      >
+        <ScrollView 
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
         >
-          {isConnecting ? (
-            <ActivityIndicator color="white" />
-          ) : (
-            <Text style={styles.signupButtonText}>Connect</Text>
-          )}
-        </TouchableOpacity>
+          <View style={styles.signupContainer}>
+            <Text style={styles.signupText}>BeeGreen</Text>
+            <Text style={styles.subtitle}>Enter MQTT connection details</Text>
+            
+            <TextInput
+              style={styles.input}
+              placeholder="Enter MQTT User"
+              placeholderTextColor="#aaa"
+              value={mqttUser}
+              onChangeText={setMqttUser}
+              autoCapitalize="none"
+              returnKeyType="next"
+            />
+            
+            {/* MQTT Password with Show/Hide */}
+            <View style={styles.passwordContainer}>
+              <TextInput
+                style={[styles.input, styles.passwordInput]}
+                placeholder="Enter MQTT Password"
+                placeholderTextColor="#aaa"
+                value={mqttPassword}
+                onChangeText={setMqttPassword}
+                secureTextEntry={!showMqttPassword}
+                autoCapitalize="none"
+                returnKeyType="next"
+              />
+              <TouchableOpacity 
+                style={styles.eyeButton}
+                onPress={() => setShowMqttPassword(!showMqttPassword)}
+              >
+                <Text style={styles.eyeButtonText}>
+                  {showMqttPassword ? 'HIDE' : 'SHOW'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            
+            <TextInput
+              style={styles.input}
+              placeholder="Enter MQTT Server"
+              placeholderTextColor="#aaa"
+              value={mqttServer}
+              onChangeText={setMqttServer}
+              autoCapitalize="none"
+              returnKeyType="next"
+            />
+            
+            <TouchableOpacity 
+              style={styles.signupButton} 
+              onPress={handleLogin}
+              activeOpacity={0.8}
+              disabled={isConnecting}
+            >
+              {isConnecting ? (
+                <ActivityIndicator color="white" />
+              ) : (
+                <Text style={styles.signupButtonText}>Connect</Text>
+              )}
+            </TouchableOpacity>
 
-        {showAddDevice && (
-          <TouchableOpacity 
-            style={[styles.signupButton, { backgroundColor: '#4CAF50', marginTop: 20 }]} 
-            onPress={scanWifiNetworks}
-            activeOpacity={0.8}
-            disabled={isScanning}
-          >
-            {isScanning ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <Text style={styles.signupButtonText}>ADD DEVICE</Text>
+            {showAddDevice && (
+              <TouchableOpacity 
+                style={[styles.signupButton, { backgroundColor: '#4CAF50', marginTop: 20 }]} 
+                onPress={scanWifiNetworks}
+                activeOpacity={0.8}
+                disabled={isScanning}
+              >
+                {isScanning ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <Text style={styles.signupButtonText}>ADD DEVICE</Text>
+                )}
+              </TouchableOpacity>
             )}
-          </TouchableOpacity>
-        )}
-      </View>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* WiFi Networks Modal */}
       <Modal
@@ -444,15 +473,27 @@ const LoginPage = ({ navigation }) => {
               editable={false}
             />
             
-            <TextInput
-              style={styles.input}
-              placeholder="WiFi Password"
-              placeholderTextColor="#aaa"
-              value={wifiPassword}
-              onChangeText={setWifiPassword}
-              secureTextEntry={true}
-              autoCapitalize="none"
-            />
+            <View style={styles.passwordContainer}>
+              <TextInput
+                style={[styles.input, styles.passwordInput]}
+                placeholder="WiFi Password"
+                placeholderTextColor="#aaa"
+                value={wifiPassword}
+                onChangeText={setWifiPassword}
+                secureTextEntry={!showWifiPassword}
+                autoCapitalize="none"
+                color="#333"
+                returnKeyType="done"
+              />
+              <TouchableOpacity 
+                style={styles.eyeButton}
+                onPress={() => setShowWifiPassword(!showWifiPassword)}
+              >
+                <Text style={styles.eyeButtonText}>
+                  {showWifiPassword ? 'HIDE' : 'SHOW'}
+                </Text>
+              </TouchableOpacity>
+            </View>
             
             <TouchableOpacity 
               style={[styles.signupButton, { marginTop: 20 }]} 
@@ -484,8 +525,18 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#2E8B57",
-    alignItems: "center",
-    justifyContent: "center",
+  },
+  keyboardAvoidingView: {
+    flex: 1,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 20,
   },
   signupContainer: {
     width: '90%',
@@ -499,6 +550,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
+    marginVertical: 20,
   },
   signupText: {
     color: 'white',
@@ -523,6 +575,29 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
   },
+  passwordContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    position: 'relative',
+    width: '100%',
+    marginBottom: 15,
+  },
+  passwordInput: {
+    flex: 1,
+    paddingRight: 70,
+  },
+  eyeButton: {
+    position: 'absolute',
+    right: 10,
+    padding: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 4,
+  },
+  eyeButtonText: {
+    color: 'green',
+    fontWeight: 'bold',
+    fontSize: 12,
+  },
   signupButton: {
     backgroundColor: '#1E6F9F',
     width: '100%',
@@ -542,7 +617,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 45, 0, 0.5)',
   },
   modalContent: {
     width: '80%',

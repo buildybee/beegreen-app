@@ -15,7 +15,10 @@ const ControlPage = ({ navigation }) => {
   const [client, setClient] = useState(null);
   const pumpTriggerTopic = "beegreen/pump_trigger";
   const pumpStatusTopic = "beegreen/pump_status";
+  const heartbeat = "beegreen/heartbeat";
   const timerRef = useRef(null);
+  const lastMessageTimeRef = useRef(null);
+  const connectionCheckIntervalRef = useRef(null);
 
   useEffect(() => {
     const fetchSavedData = async () => {
@@ -39,6 +42,12 @@ const ControlPage = ({ navigation }) => {
                 setPumpStatus(status);
                 setIsRunning(status === "on");
                 setDeviceAdded(true);
+                setIsOnline(true); // Set online when receiving pump status
+                lastMessageTimeRef.current = Date.now();
+                
+                if (status === "off" && timerRef.current) {
+                  clearTimeout(timerRef.current);
+                }
               } catch (error) {
                 console.error("Error parsing message:", error);
               }
@@ -48,7 +57,15 @@ const ControlPage = ({ navigation }) => {
           mqttClient.connect({
             onSuccess: () => {
               mqttClient.subscribe(pumpStatusTopic);
-              setIsOnline(true);
+			  mqttClient.subscribe(heartbeat);
+			  setIsOnline(true);
+              // Start checking for message freshness
+              connectionCheckIntervalRef.current = setInterval(() => {
+                if (lastMessageTimeRef.current && 
+                    Date.now() - lastMessageTimeRef.current > 1200000) { // 2 mins without messages
+                  setIsOnline(false);
+                }
+              }, 5000); // Check every 5 seconds
             },
             onFailure: (err) => {
               console.error("Connection failed", err);
@@ -59,6 +76,13 @@ const ControlPage = ({ navigation }) => {
             password: parsedConfig.mqttPassword,
           });
 
+          mqttClient.onConnectionLost = (responseObject) => {
+            if (responseObject.errorCode !== 0) {
+              console.log("Connection lost:", responseObject.errorMessage);
+              setIsOnline(false);
+            }
+          };
+
           setClient(mqttClient);
         }
       }
@@ -67,22 +91,26 @@ const ControlPage = ({ navigation }) => {
     fetchSavedData();
 
     return () => {
-      if (client) client.disconnect();
+     // if (client) client.disconnect();
       if (timerRef.current) clearTimeout(timerRef.current);
+      if (connectionCheckIntervalRef.current) {
+        clearInterval(connectionCheckIntervalRef.current);
+      }
     };
   }, []);
 
   const handlePumpControl = (start) => {
-    const newState = start;
-    setIsRunning(newState);
-    setPumpStatus(newState ? "on" : "off");
-
+	
     if (client && client.isConnected()) {
+	  setIsOnline(true);
       const message = new Paho.Message(start ? duration.toString() : "0");
       message.destinationName = pumpTriggerTopic;
+	  message.qos = 1;
       client.send(message);
+	  lastMessageTimeRef.current = Date.now();
       
-      if (newState) {
+      if (start) {
+        // Set a timeout as a fallback in case we don't receive status updates
         timerRef.current = setTimeout(() => {
           setIsRunning(false);
           setPumpStatus("off");
@@ -99,8 +127,8 @@ const ControlPage = ({ navigation }) => {
       
       <View style={styles.header}>
         <Text style={styles.headerTitle}>BeeGreen Controller</Text>
-        <View style={[styles.statusIndicator, { backgroundColor: deviceAdded ? '#4CAF50' : '#F44336' }]}>
-          <Text style={styles.statusText}>{deviceAdded ? "ONLINE" : "OFFLINE"}</Text>
+        <View style={[styles.statusIndicator, { backgroundColor: isOnline ? '#4CAF50' : '#F44336' }]}>
+          <Text style={styles.statusText}>{isOnline ? "ONLINE" : "OFFLINE"}</Text>
         </View>
       </View>
 
