@@ -107,7 +107,7 @@ const LoginPage = ({ navigation }) => {
       if (!ip.startsWith('192.168.4.')) {
         Alert.alert(
           "Wrong Network",
-          `Please connect to your device's WiFi network (current IP: ${ip})`,
+          `Connect to BeeGreen's WiFi network (current IP: ${ip})`,
           [
             { text: 'Open WiFi Settings', onPress: () => Linking.openSettings() },
             { text: 'OK' }
