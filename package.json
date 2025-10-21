@@ -6,7 +6,12 @@
     "start": "expo start --dev-client",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "lint": "eslint -c config/eslint.config.js . --ext .js,.jsx,.ts,.tsx",
+    "lint:fix": "eslint -c config/eslint.config.js . --ext .js,.jsx,.ts,.tsx --fix",
+    "format:check": "prettier . --config config/prettier.config.js --check",
+    "format:fix": "prettier . --config config/prettier.config.js --write",
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
@@ -44,6 +49,16 @@
     "@babel/core": "^7.26.8",
     "@react-native-community/cli": "latest",
     "@types/react": "~19.1.10",
+    "@typescript-eslint/eslint-plugin": "^8.46.2",
+    "@typescript-eslint/parser": "^8.46.2",
+    "eslint": "^8.57.1",
+    "eslint-config-expo": "^10.0.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.4",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.0.0",
+    "eslint-plugin-react-native": "^5.0.0",
+    "prettier": "^3.6.2",
     "typescript": "~5.9.2"
   },
   "private": true

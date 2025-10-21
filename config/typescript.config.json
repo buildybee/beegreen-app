@@ -20,16 +20,6 @@
       "@assets/*": ["../assets/*"]
     }
   },
-  "include": [
-    "../**/*.ts",
-    "../**/*.tsx",
-    "../**/*.js",
-    "../**/*.jsx"
-  ],
-  "exclude": [
-    "../node_modules",
-    "../android",
-    "../ios",
-    "../.expo"
-  ]
-} 
+  "include": ["../**/*.ts", "../**/*.tsx", "../**/*.js", "../**/*.jsx"],
+  "exclude": ["../node_modules", "../android", "../ios", "../.expo"]
+}

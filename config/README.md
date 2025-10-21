@@ -12,6 +12,7 @@ This folder contains all the configuration files for development tools to keep t
 ## Root References
 
 The root-level config files are minimal and reference these files:
+
 - `.eslintrc.js` → `./config/eslint.config.js`
 - `.prettierrc.js` → `./config/prettier.config.js`
 - `.lintstagedrc.js` → `./config/lint-staged.config.js`
@@ -22,4 +23,4 @@ The root-level config files are minimal and reference these files:
 ✅ **Clean root directory**  
 ✅ **Centralized configuration**  
 ✅ **Easy to maintain**  
-✅ **Tool compatibility maintained** 
+✅ **Tool compatibility maintained**

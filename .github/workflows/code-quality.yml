@@ -2,10 +2,10 @@ name: Code Quality Checks
 
 on:
   pull_request:
-    branches: [ main, master, app-debasish ]
-    types: [ opened, synchronize, reopened ]
+    branches: [main, master, app-debasish]
+    types: [opened, synchronize, reopened]
   push:
-    branches: [ main, master, app-debasish ]
+    branches: [main, master, app-debasish]
 
 permissions:
   contents: read
@@ -15,7 +15,7 @@ jobs:
   code-quality:
     name: Code Quality & Linting
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -65,12 +65,11 @@ jobs:
           npm audit --audit-level=moderate || true
         continue-on-error: true
 
-
   dependency-check:
     name: Dependency Analysis
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -94,4 +93,4 @@ jobs:
         run: |
           echo "📄 Checking package licenses..."
           npx license-checker --summary
-        continue-on-error: true 
+        continue-on-error: true

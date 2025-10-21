@@ -7,6 +7,7 @@ This repository includes a GitHub Action that automatically builds the Android a
 ### Build Approach
 
 The workflow uses a **containerized build** approach with the following benefits:
+
 - **Consistent environment**: Uses `reactnativecommunity/react-native-android` Docker image
 - **No external dependencies**: Builds directly using Android SDK and Gradle
 - **Full control**: Complete control over the build process
@@ -19,6 +20,7 @@ Unlike EAS builds, this containerized approach doesn't require any repository se
 ### Workflow Triggers
 
 The workflow runs on:
+
 - Pull Request opened
 - Pull Request synchronized (new commits pushed)
 - Pull Request reopened
@@ -34,6 +36,7 @@ The workflow runs on:
 ### Build Configuration
 
 The workflow:
+
 - Uses `npx expo prebuild` to generate the Android project
 - Builds a release APK using `./gradlew assembleRelease`
 - Supports all Expo configurations from your `app.json`
@@ -41,6 +44,7 @@ The workflow:
 ### Output
 
 When the workflow completes:
+
 - A comment is added to the PR with build status and APK size
 - If successful, the APK is uploaded as a GitHub artifact
 - You can download the APK from the "Artifacts" section of the workflow run
@@ -87,6 +91,7 @@ npm run type-check
 ### Pre-commit Hooks
 
 The project uses Husky to run automatic checks before commits:
+
 - Linting and auto-fixing
 - Code formatting
 - Type checking
@@ -94,7 +99,8 @@ The project uses Husky to run automatic checks before commits:
 ### Setup for New Contributors
 
 After cloning, run:
+
 ```bash
 npm install
 npm run prepare  # Sets up pre-commit hooks
-``` 
+```
