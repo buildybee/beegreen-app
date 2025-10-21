@@ -2,14 +2,6 @@ name: Android APK (Release)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
-    paths:
-      - 'android/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'App.js'
-      - 'index.js'
   pull_request:
     branches: [ main, master, app-debasish ]
     paths:
