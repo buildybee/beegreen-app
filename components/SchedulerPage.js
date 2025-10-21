@@ -51,6 +51,12 @@ const SchedulerPage = ({ navigation }) => {
     heartbeat: 'beegreen/heartbeat',
   };
 
+  function requestSchedules(mqttClient) {
+    const message = new Paho.Message('');
+    message.destinationName = topics.requestSchedules;
+    mqttClient.send(message);
+  }
+
   // Days of week values for bitmask
   const daysValues = {
     Sunday: 1,
@@ -149,11 +155,7 @@ const SchedulerPage = ({ navigation }) => {
     };
   }, []);
 
-  const requestSchedules = mqttClient => {
-    const message = new Paho.Message('');
-    message.destinationName = topics.requestSchedules;
-    mqttClient.send(message);
-  };
+  
 
   const saveSchedule = () => {
     if (!client || !client.isConnected()) {

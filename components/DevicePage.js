@@ -51,7 +51,6 @@ const DevicePage = ({ navigation }) => {
             mqttUser: parsedConfig.mqttUser,
             mqttPassword: parsedConfig.mqttPassword,
             deviceAdded: parsedConfig.deviceAdded,
-            firmwareVersion: data.firmwareVersion,
           });
 
           mqttClient.onMessageArrived = message => {
