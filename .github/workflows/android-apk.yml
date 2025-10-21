@@ -10,6 +10,14 @@ on:
       - 'package-lock.json'
       - 'App.js'
       - 'index.js'
+  pull_request:
+    branches: [ main, master, app-debasish ]
+    paths:
+      - 'android/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'App.js'
+      - 'index.js'
 
 concurrency:
   group: android-apk-${{ github.ref }}
