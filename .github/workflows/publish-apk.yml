@@ -5,8 +5,7 @@ on:
     types: [ published ]
 
 permissions:
-  contents: read
-  packages: write
+  contents: write
 
 concurrency:
   group: publish-apk-${{ github.ref }}
@@ -63,24 +62,28 @@ jobs:
         working-directory: android
         run: ./gradlew clean :app:assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon --stacktrace
 
-      - name: Publish APK to GitHub Packages (generic)
+      - name: Name APK with release version
+        id: name_apk
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PACKAGE_NAME: ${{ github.event.repository.name }}
-          PACKAGE_VERSION: ${{ github.event.release.tag_name }}
+          TAG: ${{ github.event.release.tag_name }}
           FILE: android/app/build/outputs/apk/release/app-release.apk
+          PACKAGE_NAME: ${{ github.event.repository.name }}
         run: |
           if [ ! -f "$FILE" ]; then
             echo "APK not found at path: $FILE" >&2
             exit 1
           fi
+          VERSION="${TAG#v}"
+          DIR=$(dirname "$FILE")
+          NEW="${DIR}/${PACKAGE_NAME}-${VERSION}.apk"
+          cp "$FILE" "$NEW"
+          echo "asset=$NEW" >> "$GITHUB_OUTPUT"
 
-          CONTENT_LENGTH=$(stat -c%s "$FILE")
-          curl -fL -X PUT \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
-            -H "Content-Type: application/vnd.android.package-archive" \
-            -H "Content-Length: ${CONTENT_LENGTH}" \
-            --data-binary @"$FILE" \
-            "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/packages/generic/${PACKAGE_NAME}/${PACKAGE_VERSION}/$(basename "$FILE")"
+      - name: Attach APK to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.name_apk.outputs.asset }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 
