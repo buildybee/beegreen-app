@@ -3,13 +3,7 @@ name: Android APK (Release)
 on:
   workflow_dispatch:
   pull_request:
-    branches: [ main, master, app-debasish ]
-    paths:
-      - 'android/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'App.js'
-      - 'index.js'
+    branches: [ main ]
 
 concurrency:
   group: android-apk-${{ github.ref }}
