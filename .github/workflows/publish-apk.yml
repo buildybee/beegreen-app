@@ -1,21 +1,24 @@
-name: Android APK (Release)
+name: Publish APK to Packages
 
 on:
-  workflow_dispatch:
-  pull_request:
-    branches: [ main ]
+  release:
+    types: [ published ]
+
+permissions:
+  contents: read
+  packages: write
 
 concurrency:
-  group: android-apk-${{ github.ref }}
+  group: publish-apk-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build release APK
+  publish:
+    # Only run if the release targets the default branch ('main' or 'master')
+    if: github.event.release.target_commitish == 'main' || github.event.release.target_commitish == 'master'
     runs-on: ubuntu-latest
 
     env:
-      # Keep Gradle in check on free runners
       ORG_GRADLE_PROJECT_reactNativeArchitectures: arm64-v8a
       GRADLE_OPTS: -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=1024m" -Dorg.gradle.workers.max=2
 
@@ -60,11 +63,16 @@ jobs:
         working-directory: android
         run: ./gradlew clean :app:assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon --stacktrace
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-release-arm64-v8a
-          path: android/app/build/outputs/apk/release/app-release.apk
-          if-no-files-found: error
+      - name: Publish APK to GitHub Packages (generic)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE_NAME: ${{ github.event.repository.name }}
+          PACKAGE_VERSION: ${{ github.event.release.tag_name }}
+          FILE: android/app/build/outputs/apk/release/app-release.apk
+        run: |
+          gh api --method PUT \
+            -H "Content-Type: application/vnd.android.package-archive" \
+            --input "$FILE" \
+            "/repos/${GITHUB_REPOSITORY}/packages/generic/${PACKAGE_NAME}/${PACKAGE_VERSION}/$(basename "$FILE")"
 
 
