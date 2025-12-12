@@ -13,21 +13,29 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
+      "config": {
+        "usesNonExemptEncryption": false
+      },
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
         },
-        "ITSAppUsesNonExemptEncryption": false
-      },
-      "supportsTablet": true,
-      "bundleIdentifier": "com.sayanpaul.beegreen"
+        "NSLocationWhenInUseUsageDescription": "This app needs location permission to scan for WiFi networks"
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.sayanpaul.beegreen"
+      "package": "com.buildybee.beegreen",
+      "permissions": [
+        "android.permission.ACCESS_WIFI_STATE",
+        "android.permission.CHANGE_WIFI_STATE",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.INTERNET"
+      ],
+      "usesCleartextTraffic": true
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -41,12 +49,14 @@
             "usesCleartextTraffic": true
           }
         }
-      ]
+      ],
+      "expo-font"
     ],
     "extra": {
       "eas": {
-        "projectId": "b06677ad-7fba-4744-b017-be8e9ab542aa"
+        "projectId": "4e173f75-48b6-498a-b067-0a6eea96a107"
       }
-    }
+    },
+    "owner": "buildybee"
   }
 }
