@@ -1,0 +1,78 @@
+name: Publish APK to Packages
+
+on:
+  release:
+    types: [ published ]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    # Only run if the release targets the default branch ('main' or 'master')
+    if: github.event.release.target_commitish == 'main' || github.event.release.target_commitish == 'master'
+    runs-on: ubuntu-latest
+
+    env:
+      ORG_GRADLE_PROJECT_reactNativeArchitectures: arm64-v8a
+      GRADLE_OPTS: -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=1024m" -Dorg.gradle.workers.max=2
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: 35
+          build-tools: 35.0.0
+
+      - name: Prebuild native Android project
+        env:
+          EXPO_NO_TELEMETRY: '1'
+        run: npx expo prebuild --platform android --non-interactive --clean
+
+      - name: Setup Java 17 with Gradle cache
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x android/gradlew
+
+      - name: Build release APK (arm64-v8a)
+        working-directory: android
+        run: ./gradlew clean :app:assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon --stacktrace
+
+      - name: Publish APK to GitHub Packages (generic)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE_NAME: ${{ github.event.repository.name }}
+          PACKAGE_VERSION: ${{ github.event.release.tag_name }}
+          FILE: android/app/build/outputs/apk/release/app-release.apk
+        run: |
+          gh api --method PUT \
+            -H "Content-Type: application/vnd.android.package-archive" \
+            --input "$FILE" \
+            "/repos/${GITHUB_REPOSITORY}/packages/generic/${PACKAGE_NAME}/${PACKAGE_VERSION}/$(basename "$FILE")"
+
+
