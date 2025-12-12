@@ -65,14 +65,22 @@ jobs:
 
       - name: Publish APK to GitHub Packages (generic)
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PACKAGE_NAME: ${{ github.event.repository.name }}
           PACKAGE_VERSION: ${{ github.event.release.tag_name }}
           FILE: android/app/build/outputs/apk/release/app-release.apk
         run: |
-          gh api --method PUT \
+          if [ ! -f "$FILE" ]; then
+            echo "APK not found at path: $FILE" >&2
+            exit 1
+          fi
+
+          CONTENT_LENGTH=$(stat -c%s "$FILE")
+          curl -fL -X PUT \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Content-Type: application/vnd.android.package-archive" \
-            --input "$FILE" \
-            "/repos/${GITHUB_REPOSITORY}/packages/generic/${PACKAGE_NAME}/${PACKAGE_VERSION}/$(basename "$FILE")"
+            -H "Content-Length: ${CONTENT_LENGTH}" \
+            --data-binary @"$FILE" \
+            "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/packages/generic/${PACKAGE_NAME}/${PACKAGE_VERSION}/$(basename "$FILE")"
 
 
