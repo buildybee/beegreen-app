@@ -161,7 +161,7 @@ const LoginPage = ({ navigation }) => {
       });
 
       console.log("Connected to MQTT broker");
-      setShowAddDevice(true);
+      setShowAddDevice(false);
       
       const config = {
         mqttServer,

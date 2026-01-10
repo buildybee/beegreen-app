@@ -3,7 +3,7 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createDrawerNavigator } from "@react-navigation/drawer";
 import * as SecureStore from "expo-secure-store";
 import { MaterialIcons } from "@expo/vector-icons";
-//import DevicePage from "../components/DevicePage";
+import DevicePage from "../components/DevicePage";
 import SchedulerPage from "../components/SchedulerPage";
 import ControlPage from "../components/ControlPage";
 //import TimelinePage from "../components/TimelinePage";
@@ -14,7 +14,7 @@ const Drawer = createDrawerNavigator();
 
 const AppNavigator = () => {
   const [isReady, setIsReady] = useState(false);
-  const [initialRoute, setInitialRoute] = useState("Control");
+  const [initialRoute, setInitialRoute] = useState(null);
   const [hasAccount, setHasAccount] = useState(false);
 
   useEffect(() => {
@@ -22,7 +22,7 @@ const AppNavigator = () => {
       const config = await SecureStore.getItemAsync("config");
       if (config) {
         setHasAccount(true);
-        setInitialRoute("Control"); // Default to Device Page
+        setInitialRoute("Device Add"); // Default to Device Page
       } else {
         setHasAccount(false);
         setInitialRoute("Login"); // Show Login if no account
@@ -42,6 +42,16 @@ const AppNavigator = () => {
       <Drawer.Navigator initialRouteName={initialRoute}>
         {hasAccount ? (
           <>
+		  
+		    <Drawer.Screen
+              name="Device Add"
+              component={DevicePage}
+              options={{
+                drawerIcon: ({ color, size }) => (
+                  <MaterialIcons name="login" size={size} color={color} />
+                ),
+              }}
+            />
            
             <Drawer.Screen
               name="Scheduler"
