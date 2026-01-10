@@ -27,8 +27,8 @@ const ControlPage = ({ navigation }) => {
   const [currentDevice, setCurrentDevice] = useState(""); // Currently selected device
   const [availableDevices, setAvailableDevices] = useState([]); // List of available devices for UI
   
-  const pumpTriggerTopic = "beegreen/pump_trigger";
-  const pumpStatusTopic = "beegreen/pump_status";
+  const pumpTriggerTopic = "${currentDevice}/pump_trigger";
+  const pumpStatusTopic = "${currentDevice}/pump_status";
   const heartbeatTopicPattern = "+/heartbeat"; // MQTT wildcard pattern for device heartbeat
   const devicePumpStatusPattern = "+/pump_status"; // MQTT wildcard pattern for device pump status
   
