@@ -174,7 +174,7 @@ const LoginPage = ({ navigation }) => {
       
       await SecureStore.setItemAsync("config", JSON.stringify(config));
       Alert.alert("Success", "MQTT configuration saved successfully!");
-      Alert.alert("Do ADD DEVICE if device not added");
+      Alert.alert("Close and Reopen BeeGreen app");
     } catch (error) {
       console.error("Connection error:", error);
       Alert.alert("Error", `Failed to connect to MQTT broker: ${error.message}`);

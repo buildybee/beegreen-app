@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -15,17 +15,11 @@ import { MaterialIcons } from "@expo/vector-icons";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Paho from "paho-mqtt";
 import * as SecureStore from "expo-secure-store";
+import * as Notifications from 'expo-notifications';
 
 const SchedulerPage = ({ navigation }) => {
   // State management
-  const [schedules, setSchedules] = useState(Array(10).fill(null).map((_, index) => ({
-    index,
-    hour: 0,
-    min: 0,
-    dur: 0,
-    dow: 0,
-    en: 0
-  })));
+  const [schedules, setSchedules] = useState({});
   const [isOnline, setIsOnline] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -37,17 +31,31 @@ const SchedulerPage = ({ navigation }) => {
     dow: 62,
     en: 1
   });
+  const [currentDevice, setCurrentDevice] = useState("");
   const [client, setClient] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [debugInfo, setDebugInfo] = useState("");
+  const [devices, setDevices] = useState([]);
+  const [nextRunTimes, setNextRunTimes] = useState({});
+  const [refreshingNextRun, setRefreshingNextRun] = useState(true); // New state for refresh animation
 
   // MQTT Topics
   const topics = {
     setSchedule: "beegreen/set_schedule",
     requestSchedules: "beegreen/get_schedules",
     getSchedulesResponse: "beegreen/get_schedules_response",
-    heartbeat: "beegreen/heartbeat"
+    heartbeat: "beegreen/heartbeat",
+    deviceSetSchedulePattern: "+/set_schedule",
+    deviceRequestSchedulesPattern: "+/get_schedules",
+    deviceGetSchedulesResponsePattern: "+/get_schedules_response",
+    deviceHeartbeatPattern: "+/heartbeat",
+    deviceNextSchedulePattern: "+/next_schedule_due",
+    deviceRequestNextSchedule: "+/get_next_schedule_due" // New topic to request next schedule
   };
+
+  // Refs
+  const devicesRef = useRef(new Set());
+  const schedulesRef = useRef({});
+  const nextRunTimesRef = useRef({});
 
   // Days of week values for bitmask
   const daysValues = {
@@ -58,6 +66,240 @@ const SchedulerPage = ({ navigation }) => {
     Thursday: 16,
     Friday: 32,
     Saturday: 64
+  };
+
+  // Extract device name from topic
+  const extractDeviceName = (topic) => {
+    const parts = topic.split('/');
+    return parts.length > 0 ? parts[0] : null;
+  };
+
+  // Format next run time
+  const formatNextRunTime = (timestamp) => {
+    if (!timestamp || timestamp === "0" || timestamp === "N/A") {
+      return "N/A";
+    }
+    
+    try {
+      const date = new Date(parseInt(timestamp) * 1000);
+      if (isNaN(date.getTime())) {
+        return "N/A";
+      }
+      
+      const now = new Date();
+      const diffMs = date.getTime() - now.getTime();
+      const diffMins = Math.round(diffMs / 60000);
+      
+      // If within 24 hours, show relative time
+      if (diffMs > 0 && diffMs < 24 * 60 * 60 * 1000) {
+        if (diffMins < 1) {
+          return "Now";
+        } else if (diffMins < 60) {
+          return `in ${diffMins} min${diffMins !== 1 ? 's' : ''}`;
+        } else {
+          const hours = Math.floor(diffMins / 60);
+          const minutes = diffMins % 60;
+          if (minutes === 0) {
+            return `in ${hours} hour${hours !== 1 ? 's' : ''}`;
+          }
+          return `in ${hours}h ${minutes}m`;
+        }
+      }
+      
+      // Otherwise show date/time
+      const today = now.toDateString();
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      
+      if (date.toDateString() === today) {
+        return `Today, ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+      } else if (date.toDateString() === tomorrow.toDateString()) {
+        return `Tomorrow, ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+      } else {
+        return `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+      }
+    } catch (error) {
+      console.error("Error formatting next run time:", error);
+      return "N/A";
+    }
+  };
+
+  // Add a new device to the list
+  const addNewDevice = (deviceName) => {
+    if (!devicesRef.current.has(deviceName)) {
+      devicesRef.current.add(deviceName);
+      
+      const newDevices = Array.from(devicesRef.current);
+      setDevices(newDevices);
+      
+      // Initialize next run time for new device
+      const times = { ...nextRunTimesRef.current };
+      times[deviceName] = "N/A";
+      nextRunTimesRef.current = times;
+      setNextRunTimes(times);
+      
+      // If this is the first device, set it as current
+      if (devicesRef.current.size === 1) {
+        setCurrentDevice(deviceName);
+        loadSchedulesForDevice(deviceName);
+      }
+      
+      console.log(`New device discovered: ${deviceName}`);
+    }
+  };
+
+  // Update next run time for a device
+  const updateNextRunTime = (deviceName, timestamp) => {
+    const times = { ...nextRunTimesRef.current };
+    times[deviceName] = timestamp;
+    nextRunTimesRef.current = times;
+    setNextRunTimes(times);
+    
+    console.log(`Updated next run time for ${deviceName}: ${timestamp}`);
+  };
+
+  // Request next run time from device
+  const requestNextRunTime = () => {
+    if (!client || !client.isConnected() || !currentDevice) {
+      Alert.alert("Offline", "Not connected to device");
+      return;
+    }
+    
+    setRefreshingNextRun(true);
+    
+    try {
+      const message = new Paho.Message("");
+      message.destinationName = `${currentDevice}/get_next_schedule_due`;
+      message.qos = 1;
+      client.send(message);
+      
+      console.log(`Requested next run time from ${currentDevice}`);
+      
+      // Timeout if no response
+      setTimeout(() => {
+        if (refreshingNextRun) {
+          setRefreshingNextRun(false);
+          Alert.alert("No Response", "Device did not respond with next run time");
+        }
+      }, 3000);
+    } catch (error) {
+      console.error("Error requesting next run time:", error);
+      setRefreshingNextRun(false);
+    }
+  };
+
+  // Parse schedules from payload string
+  const parseSchedulesFromPayload = (payloadStr) => {
+    const schedules = [];
+    const cleanPayload = payloadStr.trim();
+    
+    if (!cleanPayload) {
+      return schedules;
+    }
+    
+    // Try to parse as JSON array
+    if (cleanPayload.startsWith('[') && cleanPayload.endsWith(']')) {
+      try {
+        const jsonArray = JSON.parse(cleanPayload);
+        
+        jsonArray.forEach((item, index) => {
+          if (typeof item === 'string') {
+            const parts = item.split(':').map(part => part.trim());
+            
+            if (parts.length === 5) {
+              schedules.push({
+                index: parseInt(parts[0]) || index,
+                hour: parseInt(parts[1]) || 0,
+                min: parseInt(parts[2]) || 0,
+                dur: parseInt(parts[3]) || 0,
+                dow: parseInt(parts[4]) || 0,
+                en: true
+              });
+            } else if (parts.length === 6) {
+              schedules.push({
+                index: parseInt(parts[0]) || index,
+                hour: parseInt(parts[1]) || 0,
+                min: parseInt(parts[2]) || 0,
+                dur: parseInt(parts[3]) || 0,
+                dow: parseInt(parts[4]) || 0,
+                en: parts[5] === '1' || parts[5].toLowerCase() === 'true'
+              });
+            }
+          } else if (item && typeof item === 'object') {
+            schedules.push({
+              index: item.index !== undefined ? item.index : index,
+              hour: item.hour || item.HOUR || item.h || 0,
+              min: item.min || item.MIN || item.m || 0,
+              dur: item.dur || item.DUR || item.d || item.duration || 0,
+              dow: item.dow || item.DOW || item.w || item.daysofweek || 0,
+              en: true
+            });
+          }
+        });
+        return schedules;
+      } catch (e) {
+        console.log("Not valid JSON array:", e.message);
+      }
+    }
+    
+    return schedules;
+  };
+
+  // Save schedules for a specific device
+  const saveSchedulesForDevice = async (deviceName, deviceSchedules) => {
+    const allSchedules = schedulesRef.current;
+    allSchedules[deviceName] = deviceSchedules;
+    schedulesRef.current = allSchedules;
+    
+    setSchedules({ ...allSchedules });
+    
+    try {
+      await SecureStore.setItemAsync(`schedules_${deviceName}`, JSON.stringify(deviceSchedules));
+    } catch (error) {
+      console.error("Error saving schedules:", error);
+    }
+  };
+
+  // Load schedules for a specific device
+  const loadSchedulesForDevice = async (deviceName) => {
+    try {
+      const savedSchedules = await SecureStore.getItemAsync(`schedules_${deviceName}`);
+      if (savedSchedules) {
+        const parsedSchedules = JSON.parse(savedSchedules);
+        if (Array.isArray(parsedSchedules)) {
+          saveSchedulesForDevice(deviceName, parsedSchedules);
+        }
+      }
+    } catch (error) {
+      console.error("Error loading schedules:", error);
+    }
+  };
+
+  // Get schedules for current device
+  const getCurrentDeviceSchedules = () => {
+    if (!currentDevice) return Array(10).fill(null).map((_, index) => ({
+      index,
+      hour: 0,
+      min: 0,
+      dur: 0,
+      dow: 0,
+      en: 0
+    }));
+    
+    return schedules[currentDevice] || Array(10).fill(null).map((_, index) => ({
+      index,
+      hour: 0,
+      min: 0,
+      dur: 0,
+      dow: 0,
+      en: 0
+    }));
+  };
+
+  // Get next run time for current device
+  const getCurrentDeviceNextRunTime = () => {
+    if (!currentDevice) return "N/A";
+    return nextRunTimes[currentDevice] || "N/A";
   };
 
   // Initialize MQTT connection
@@ -74,22 +316,36 @@ const SchedulerPage = ({ navigation }) => {
         );
 
         mqttClient.onMessageArrived = (message) => {
-          console.log(`📨 Message received on topic: ${message.destinationName}`);
-          console.log("📦 Raw payload:", message.payloadString);
+          const topic = message.destinationName;
+          const deviceName = extractDeviceName(topic);
+          const payload = message.payloadString.trim();
           
-          if (message.destinationName === topics.getSchedulesResponse) {
-            setDebugInfo(`Received: ${message.payloadString}`);
-            
+          // Handle device heartbeat
+          if (topic.endsWith('/heartbeat')) {
+            if (deviceName) {
+              addNewDevice(deviceName);
+              setIsOnline(true);
+            } else if (topic === topics.heartbeat) {
+              setIsOnline(true);
+            }
+          }
+          // Handle next schedule due time
+          else if (topic.endsWith('/next_schedule_due')) {
+            if (deviceName && payload) {
+              updateNextRunTime(deviceName, payload);
+              // Stop refresh animation when we get a response
+              if (refreshingNextRun && deviceName === currentDevice) {
+                setRefreshingNextRun(false);
+              }
+            }
+          }
+          // Handle schedules response
+          else if (topic.endsWith('/get_schedules_response')) {
             try {
               const payloadStr = message.payloadString.trim();
-              console.log("🔍 Processing payload:", payloadStr);
-              
-              // Try to parse the payload
               const parsedSchedules = parseSchedulesFromPayload(payloadStr);
-              console.log("✅ Parsed schedules:", parsedSchedules);
               
               if (parsedSchedules.length > 0) {
-                // Update schedules state - show ALL schedules from device
                 const allSchedules = Array(10).fill(null).map((_, index) => {
                   const foundSchedule = parsedSchedules.find(s => s.index === index);
                   return foundSchedule || {
@@ -102,47 +358,74 @@ const SchedulerPage = ({ navigation }) => {
                   };
                 });
                 
-                setSchedules(allSchedules);
-                
-                // Save to SecureStore
-                SecureStore.setItemAsync("schedules", JSON.stringify(allSchedules));
+                if (deviceName) {
+                  saveSchedulesForDevice(deviceName, allSchedules);
+                } else {
+                  saveSchedulesForDevice("default", allSchedules);
+                  if (devicesRef.current.size === 0) {
+                    addNewDevice("default");
+                  }
+                }
               }
             } catch (error) {
               console.error("❌ Error parsing schedules:", error);
-              setDebugInfo(`Error: ${error.message}`);
             }
             
             setIsLoading(false);
-          } else if (message.destinationName === topics.heartbeat) {
-            console.log("💓 Heartbeat received");
-            setIsOnline(true);
+          }
+          // Handle legacy schedule response
+          else if (topic === topics.getSchedulesResponse) {
+            try {
+              const payloadStr = message.payloadString.trim();
+              const parsedSchedules = parseSchedulesFromPayload(payloadStr);
+              
+              if (parsedSchedules.length > 0) {
+                const allSchedules = Array(10).fill(null).map((_, index) => {
+                  const foundSchedule = parsedSchedules.find(s => s.index === index);
+                  return foundSchedule || {
+                    index,
+                    hour: 0,
+                    min: 0,
+                    dur: 0,
+                    dow: 0,
+                    en: 0
+                  };
+                });
+                
+                saveSchedulesForDevice("default", allSchedules);
+                if (devicesRef.current.size === 0) {
+                  addNewDevice("default");
+                }
+              }
+            } catch (error) {
+              console.error("❌ Error parsing legacy schedules:", error);
+            }
+            
+            setIsLoading(false);
           }
         };
 
         mqttClient.onConnectionLost = (responseObject) => {
-          console.log("🔌 Connection lost:", responseObject.errorMessage);
+          console.log("Connection lost:", responseObject.errorMessage);
           setIsOnline(false);
         };
 
         mqttClient.connect({
           onSuccess: () => {
-            console.log("✅ MQTT Connected successfully");
             setIsOnline(true);
             
             // Subscribe to topics
+            mqttClient.subscribe(topics.deviceGetSchedulesResponsePattern);
+            mqttClient.subscribe(topics.deviceHeartbeatPattern);
+            mqttClient.subscribe(topics.deviceNextSchedulePattern);
             mqttClient.subscribe(topics.getSchedulesResponse);
             mqttClient.subscribe(topics.heartbeat);
-            console.log("📡 Subscribed to topics");
             
-            // Request schedules after a short delay
-            setTimeout(() => {
-              if (mqttClient.isConnected()) {
-                requestSchedules(mqttClient);
-              }
-            }, 1000);
+            // Load saved devices
+            loadSavedDevices();
           },
           onFailure: (err) => {
-            console.error("❌ Connection failed:", err);
+            console.error("Connection failed:", err);
             Alert.alert("Connection Error", "Failed to connect to MQTT server");
             setIsOnline(false);
             setIsLoading(false);
@@ -156,7 +439,6 @@ const SchedulerPage = ({ navigation }) => {
 
         setClient(mqttClient);
       } else {
-        console.log("⚠️ No MQTT configuration found");
         Alert.alert("Configuration Missing", "Please configure MQTT settings first");
         setIsLoading(false);
       }
@@ -167,130 +449,73 @@ const SchedulerPage = ({ navigation }) => {
     return () => {
       if (client) {
         client.disconnect();
-        console.log("🔌 MQTT client disconnected");
       }
     };
   }, []);
 
-   // Parse schedules from payload string
-  const parseSchedulesFromPayload = (payloadStr) => {
-    const schedules = [];
-    
-    // Clean the payload
-    const cleanPayload = payloadStr.trim();
-    
-    // Check if it's empty
-    if (!cleanPayload) {
-      console.log("Payload is empty");
-      return schedules;
-    }
-    
-    console.log("Parsing payload:", cleanPayload);
-    
-    // Try to parse as JSON array
-    if (cleanPayload.startsWith('[') && cleanPayload.endsWith(']')) {
-      try {
-        const jsonArray = JSON.parse(cleanPayload);
-        console.log("Parsed as JSON array:", jsonArray);
-        
-        jsonArray.forEach((item, index) => {
-          if (typeof item === 'string') {
-            // Item is a colon-separated string like "0:8:0:60:62"
-            const parts = item.split(':').map(part => part.trim());
-            console.log(`Item ${index} parts:`, parts);
-            
-            if (parts.length === 5) {
-              // Format: index:hour:minute:duration:days (enabled is implied as 1)
-              schedules.push({
-                index: parseInt(parts[0]) || index,
-                hour: parseInt(parts[1]) || 0,
-                min: parseInt(parts[2]) || 0,
-                dur: parseInt(parts[3]) || 0,
-                dow: parseInt(parts[4]) || 0,
-                en: true // All schedules from device are enabled
-              });
-            } else if (parts.length === 6) {
-              // Format: index:hour:minute:duration:days:enabled
-              schedules.push({
-                index: parseInt(parts[0]) || index,
-                hour: parseInt(parts[1]) || 0,
-                min: parseInt(parts[2]) || 0,
-                dur: parseInt(parts[3]) || 0,
-                dow: parseInt(parts[4]) || 0,
-                en: parts[5] === '1' || parts[5].toLowerCase() === 'true'
-              });
-            }
-          } else if (item && typeof item === 'object') {
-            // Item is already an object
-            schedules.push({
-              index: item.index !== undefined ? item.index : index,
-              hour: item.hour || item.HOUR || item.h || 0,
-              min: item.min || item.MIN || item.m || 0,
-              dur: item.dur || item.DUR || item.d || item.duration || 0,
-              dow: item.dow || item.DOW || item.w || item.daysofweek || 0,
-              en: true // All schedules from device are enabled
-            });
-          }
-        });
-        return schedules;
-      } catch (e) {
-        console.log("Not valid JSON array:", e.message);
-      }
-    }
-    
-    console.log("Final parsed schedules:", schedules);
-    return schedules;
-  };
-  
-  // Load schedules from SecureStore on initial render
-  useEffect(() => {
-    const loadSchedules = async () => {
-      try {
-        const savedSchedules = await SecureStore.getItemAsync("schedules");
-        if (savedSchedules) {
-          const parsedSchedules = JSON.parse(savedSchedules);
-          if (Array.isArray(parsedSchedules)) {
-            setSchedules(parsedSchedules);
-            console.log("Loaded schedules from cache");
+  // Load saved devices from SecureStore
+  const loadSavedDevices = async () => {
+    try {
+      const savedDevices = await SecureStore.getItemAsync("scheduler_devices");
+      if (savedDevices) {
+        const parsedDevices = JSON.parse(savedDevices);
+        if (Array.isArray(parsedDevices) && parsedDevices.length > 0) {
+          parsedDevices.forEach(device => {
+            devicesRef.current.add(device);
+          });
+          
+          const deviceArray = Array.from(devicesRef.current);
+          setDevices(deviceArray);
+          
+          // Initialize next run times for all devices
+          const times = {};
+          deviceArray.forEach(device => {
+            times[device] = "N/A";
+          });
+          nextRunTimesRef.current = times;
+          setNextRunTimes(times);
+          
+          if (deviceArray.length > 0) {
+            setCurrentDevice(deviceArray[0]);
+            loadSchedulesForDevice(deviceArray[0]);
           }
         }
-      } catch (error) {
-        console.error("Error loading schedules:", error);
       }
-    };
-    loadSchedules();
-  }, []);
+    } catch (error) {
+      console.error("Error loading saved devices:", error);
+    }
+  };
 
-  const requestSchedules = (mqttClient) => {
-    if (!mqttClient || !mqttClient.isConnected()) {
+  const requestSchedules = () => {
+    if (!client || !client.isConnected()) {
       Alert.alert("Offline", "Not connected to MQTT server");
       return;
     }
     
-    console.log("📤 Requesting schedules from device...");
     setIsLoading(true);
-    setDebugInfo("Requesting schedules...");
     
     try {
       const message = new Paho.Message("");
-      message.destinationName = topics.requestSchedules;
-      message.qos = 1;
       
-      mqttClient.send(message);
-      console.log("✅ Schedule request sent");
+      if (currentDevice && currentDevice !== "default") {
+        message.destinationName = `${currentDevice}/get_schedules`;
+      } else {
+        message.destinationName = topics.requestSchedules;
+      }
+      
+      message.qos = 1;
+      client.send(message);
       
       // Timeout if no response
       setTimeout(() => {
         if (isLoading) {
           setIsLoading(false);
-          setDebugInfo("No response received");
           Alert.alert("Timeout", "No response from device");
         }
       }, 5000);
     } catch (error) {
       console.error("Error sending request:", error);
       setIsLoading(false);
-      setDebugInfo(`Error: ${error.message}`);
     }
   };
 
@@ -303,25 +528,33 @@ const SchedulerPage = ({ navigation }) => {
     const { index, hour, min, dur, dow, en } = currentSchedule;
     const payload = `${index}:${hour}:${min}:${dur}:${dow}:${en ? 1 : 0}`;
     
-    console.log("💾 Saving schedule:", payload);
-    
     const message = new Paho.Message(payload);
-    message.destinationName = topics.setSchedule;
+    
+    if (currentDevice && currentDevice !== "default") {
+      message.destinationName = `${currentDevice}/set_schedule`;
+    } else {
+      message.destinationName = topics.setSchedule;
+    }
+    
     message.qos = 1;
     client.send(message);
 
     // Update local state
-    const updatedSchedules = [...schedules];
+    const currentSchedules = getCurrentDeviceSchedules();
+    const updatedSchedules = [...currentSchedules];
     updatedSchedules[index] = { ...currentSchedule };
-    setSchedules(updatedSchedules);
-
-    // Save to SecureStore
-    SecureStore.setItemAsync("schedules", JSON.stringify(updatedSchedules));
+    
+    if (currentDevice) {
+      saveSchedulesForDevice(currentDevice, updatedSchedules);
+    }
 
     setModalVisible(false);
     
-    // Refresh schedules
-    setTimeout(() => requestSchedules(client), 1000);
+    // Refresh schedules and next run time
+    setTimeout(() => {
+      requestSchedules();
+      requestNextRunTime();
+    }, 1000);
   };
 
   const deleteSchedule = (index) => {
@@ -331,15 +564,20 @@ const SchedulerPage = ({ navigation }) => {
     }
 
     const payload = `${index}:0:0:0:0:0`;
-    console.log("🗑️ Deleting schedule:", payload);
-
     const message = new Paho.Message(payload);
-    message.destinationName = topics.setSchedule;
+    
+    if (currentDevice && currentDevice !== "default") {
+      message.destinationName = `${currentDevice}/set_schedule`;
+    } else {
+      message.destinationName = topics.setSchedule;
+    }
+    
     message.qos = 1;
     client.send(message);
 
     // Update local state
-    const updatedSchedules = [...schedules];
+    const currentSchedules = getCurrentDeviceSchedules();
+    const updatedSchedules = [...currentSchedules];
     updatedSchedules[index] = {
       index,
       hour: 0,
@@ -348,22 +586,29 @@ const SchedulerPage = ({ navigation }) => {
       dow: 0,
       en: 0
     };
-    setSchedules(updatedSchedules);
-
-    // Save to SecureStore
-    SecureStore.setItemAsync("schedules", JSON.stringify(updatedSchedules));
     
-    // Refresh schedules
-    setTimeout(() => requestSchedules(client), 1000);
-  };
-
-  const refreshSchedules = () => {
-    if (!client || !client.isConnected()) {
-      Alert.alert("Error", "Not connected to device");
-      return;
+    if (currentDevice) {
+      saveSchedulesForDevice(currentDevice, updatedSchedules);
     }
     
-    requestSchedules(client);
+    // Refresh schedules and next run time
+    setTimeout(() => {
+      requestSchedules();
+      requestNextRunTime();
+    }, 1000);
+  };
+
+  const switchDevice = (deviceName) => {
+    setCurrentDevice(deviceName);
+    setIsLoading(true);
+    
+    loadSchedulesForDevice(deviceName);
+    
+    setTimeout(() => {
+      requestSchedules();
+      // Also request next run time when switching devices
+      requestNextRunTime();
+    }, 500);
   };
 
   const toggleDay = (day) => {
@@ -395,32 +640,33 @@ const SchedulerPage = ({ navigation }) => {
     return selectedDays.join(", ");
   };
 
-  // Get ALL schedules to display (not just enabled ones)
-  // Since device only sends enabled schedules, we show all we receive
-  const displaySchedules = schedules.filter(s => s.dur > 0 || s.hour > 0 || s.min > 0);
+  // Get schedules for current device to display
+  const displaySchedules = getCurrentDeviceSchedules().filter(s => s.dur > 0 || s.hour > 0 || s.min > 0);
   const displaySchedulesCount = displaySchedules.length;
+  const nextRunTime = getCurrentDeviceNextRunTime();
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
       
+      {/* Header */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.headerTitle}>Irrigation Scheduler</Text>
+          <Text style={styles.headerTitle}>Scheduler</Text>
           <Text style={styles.scheduleCount}>
-            {displaySchedulesCount} schedule{displaySchedulesCount !== 1 ? 's' : ''}
+            {currentDevice ? `${displaySchedulesCount} schedule${displaySchedulesCount !== 1 ? 's' : ''}` : "No device"}
           </Text>
         </View>
         <View style={styles.headerRight}>
           <TouchableOpacity 
-            onPress={refreshSchedules}
+            onPress={requestSchedules}
             style={[styles.refreshButton, (isLoading || !isOnline) && styles.refreshButtonDisabled]}
             disabled={isLoading || !isOnline}
           >
             <MaterialIcons 
               name="refresh" 
               size={22} 
-              color={isOnline ? "#5E72E4" : "#A0AEC0"} 
+              color={isOnline ? "#5E72E4" : "#CBD5E0"} 
             />
           </TouchableOpacity>
           <View style={[styles.statusIndicator, { backgroundColor: isOnline ? '#4CAF50' : '#F44336' }]}>
@@ -429,19 +675,89 @@ const SchedulerPage = ({ navigation }) => {
         </View>
       </View>
 
-      {/* Debug Info */}
-      {debugInfo ? (
-        <View style={styles.debugContainer}>
-          <Text style={styles.debugText}>{debugInfo}</Text>
+      {/* Compact Device Selection */}
+      {devices.length > 0 && (
+        <View style={styles.deviceSection}>
+          <Text style={styles.deviceSectionTitle}>Active Device</Text>
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            style={styles.deviceScrollView}
+          >
+            {devices.map((device, index) => (
+              <TouchableOpacity
+                key={index}
+                style={[
+                  styles.deviceChip,
+                  currentDevice === device && styles.deviceChipActive
+                ]}
+                onPress={() => switchDevice(device)}
+              >
+                <MaterialIcons 
+                  name="device-hub" 
+                  size={14} 
+                  color={currentDevice === device ? 'white' : '#5E72E4'} 
+                />
+                <Text style={[
+                  styles.deviceChipText,
+                  currentDevice === device && styles.deviceChipTextActive
+                ]}>
+                  {device}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
         </View>
-      ) : null}
+      )}
 
-      <View style={styles.contentContainer}>
+      {/* Next Run Time Display - Now Clickable */}
+      {currentDevice && isOnline && (
+        <TouchableOpacity 
+          style={[
+            styles.nextRunContainer,
+            refreshingNextRun && styles.nextRunContainerRefreshing
+          ]}
+          onPress={requestNextRunTime}
+          activeOpacity={0.7}
+          disabled={refreshingNextRun}
+        >
+          <View style={styles.nextRunIcon}>
+            {refreshingNextRun ? (
+              <MaterialIcons name="refresh" size={20} color="#5E72E4" style={styles.refreshingIcon} />
+            ) : (
+              <MaterialIcons name="schedule" size={18} color="#5E72E4" />
+            )}
+          </View>
+          <View style={styles.nextRunTextContainer}>
+            <View style={styles.nextRunHeader}>
+              <Text style={styles.nextRunLabel}>Next run:</Text>
+              <MaterialIcons 
+                name="refresh" 
+                size={14} 
+                color="#718096" 
+                style={styles.refreshIndicator} 
+              />
+            </View>
+            <Text style={styles.nextRunTime}>
+              {refreshingNextRun ? "Refreshing..." : (nextRunTime)}
+            </Text>
+          </View>
+        </TouchableOpacity>
+      )}
+
+      {/* Main Content */}
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* Add Schedule Button */}
         <TouchableOpacity 
-          style={[styles.addButton, (!isOnline || displaySchedulesCount >= 10) && styles.addButtonDisabled]}
+          style={[styles.addButton, (!isOnline || !currentDevice || displaySchedulesCount >= 10) && styles.addButtonDisabled]}
           onPress={() => {
-            const availableIndex = schedules.findIndex(s => s.dur === 0 && s.hour === 0 && s.min === 0);
+            if (!currentDevice) {
+              Alert.alert("No Device", "Please select a device first");
+              return;
+            }
+            
+            const currentSchedules = getCurrentDeviceSchedules();
+            const availableIndex = currentSchedules.findIndex(s => s.dur === 0 && s.hour === 0 && s.min === 0);
             if (availableIndex !== -1) {
               setCurrentSchedule({
                 index: availableIndex,
@@ -453,95 +769,84 @@ const SchedulerPage = ({ navigation }) => {
               });
               setModalVisible(true);
             } else {
-              Alert.alert("Maximum Reached", "You have reached the maximum of 10 schedules");
+              Alert.alert("Limit Reached", "Maximum 10 schedules per device");
             }
           }}
-          disabled={!isOnline || displaySchedulesCount >= 10}
+          disabled={!isOnline || !currentDevice || displaySchedulesCount >= 10}
         >
-          <MaterialIcons name="add" size={24} color="white" />
-          <Text style={styles.addButtonText}>ADD SCHEDULE</Text>
+          <MaterialIcons name="add-circle-outline" size={24} color="white" />
+          <Text style={styles.addButtonText}>New Schedule</Text>
         </TouchableOpacity>
 
-        {/* Loading Indicator */}
+        {/* Loading State */}
         {isLoading && (
           <View style={styles.loadingContainer}>
-            <MaterialIcons name="schedule" size={32} color="#5E72E4" />
-            <Text style={styles.loadingText}>Loading schedules...</Text>
+            <MaterialIcons name="schedule" size={28} color="#5E72E4" />
+            <Text style={styles.loadingText}>Loading...</Text>
           </View>
         )}
 
-        {/* Schedules List - Show ALL schedules with non-zero values */}
-        <ScrollView 
-          style={styles.schedulesScrollView}
-          contentContainerStyle={styles.schedulesContainer}
-          showsVerticalScrollIndicator={false}
-        >
-          {displaySchedulesCount > 0 ? (
-            displaySchedules
-              .sort((a, b) => a.index - b.index)
-              .map((schedule) => (
-                <View key={schedule.index} style={styles.scheduleItem}>
-                  <View style={styles.scheduleInfo}>
+        {/* Schedules List */}
+        {currentDevice ? (
+          displaySchedulesCount > 0 ? (
+            <View style={styles.schedulesList}>
+              {displaySchedules
+                .sort((a, b) => a.index - b.index)
+                .map((schedule) => (
+                  <View key={schedule.index} style={styles.scheduleCard}>
                     <View style={styles.scheduleHeader}>
-                      <View style={styles.scheduleIndexBadge}>
+                      <View style={styles.scheduleIndex}>
                         <Text style={styles.scheduleIndexText}>#{schedule.index + 1}</Text>
                       </View>
-                      <Text style={styles.scheduleTime}>
-                        {formatTime(schedule.hour, schedule.min)}
-                      </Text>
-                      <Text style={styles.scheduleDuration}>
-                        {schedule.dur}s
-                      </Text>
+                      <View style={styles.scheduleTimeContainer}>
+                        <Text style={styles.scheduleTime}>{formatTime(schedule.hour, schedule.min)}</Text>
+                        <Text style={styles.scheduleDuration}>{schedule.dur}s</Text>
+                      </View>
+                      <View style={styles.scheduleActions}>
+                        <TouchableOpacity 
+                          style={styles.actionButton}
+                          onPress={() => {
+                            setCurrentSchedule({ ...schedule });
+                            setModalVisible(true);
+                          }}
+                        >
+                          <MaterialIcons name="edit" size={20} color="#5E72E4" />
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                          style={styles.actionButton}
+                          onPress={() => deleteSchedule(schedule.index)}
+                        >
+                          <MaterialIcons name="delete" size={20} color="#F44336" />
+                        </TouchableOpacity>
+                      </View>
                     </View>
-                    <Text style={styles.scheduleDaysText}>
-                      {formatDays(schedule.dow)}
-                    </Text>
-                    <Text style={styles.scheduleRawText}>
-                      Raw: {schedule.index}:{schedule.hour}:{schedule.min}:{schedule.dur}:{schedule.dow}:{schedule.en ? 1 : 0}
-                    </Text>
+                    <Text style={styles.scheduleDays}>{formatDays(schedule.dow)}</Text>
                   </View>
-                  <View style={styles.scheduleActions}>
-                    <TouchableOpacity 
-                      style={styles.actionButton}
-                      onPress={() => {
-                        setCurrentSchedule({ ...schedule });
-                        setModalVisible(true);
-                      }}
-                    >
-                      <MaterialIcons name="edit" size={22} color="#0A4D68" />
-                    </TouchableOpacity>
-                    <TouchableOpacity 
-                      style={styles.actionButton}
-                      onPress={() => deleteSchedule(schedule.index)}
-                    >
-                      <MaterialIcons name="delete" size={22} color="#F44336" />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ))
+                ))}
+            </View>
           ) : (
             !isLoading && (
-              <View style={styles.emptyContainer}>
-                <MaterialIcons name="schedule" size={80} color="#E2E8F0" />
-                <Text style={styles.emptyText}>No Schedules Yet</Text>
+              <View style={styles.emptyState}>
+                <MaterialIcons name="schedule" size={60} color="#E2E8F0" />
+                <Text style={styles.emptyText}>No Schedules</Text>
                 <Text style={styles.emptySubtext}>
-                  {isOnline 
-                    ? "Add your first schedule to get started" 
-                    : "Connect to device to view schedules"}
+                  Add a schedule to automate watering
                 </Text>
-                {isOnline && (
-                  <TouchableOpacity 
-                    style={styles.retryButton}
-                    onPress={refreshSchedules}
-                  >
-                    <Text style={styles.retryButtonText}>Refresh Schedules</Text>
-                  </TouchableOpacity>
-                )}
               </View>
             )
-          )}
-        </ScrollView>
-      </View>
+          )
+        ) : (
+          <View style={styles.emptyState}>
+            <MaterialIcons name="devices" size={60} color="#E2E8F0" />
+            <Text style={styles.emptyText}>No Device Selected</Text>
+            <Text style={styles.emptySubtext}>
+              {devices.length > 0 
+                ? "Select a device above" 
+                : "Waiting for devices..."}
+            </Text>
+          </View>
+        )}
+      </ScrollView>
 
       {/* Schedule Modal */}
       <Modal
@@ -550,12 +855,15 @@ const SchedulerPage = ({ navigation }) => {
         transparent={true}
         onRequestClose={() => setModalVisible(false)}
       >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                Schedule #{currentSchedule.index + 1}
-              </Text>
+              <View>
+                <Text style={styles.modalTitle}>Edit Schedule</Text>
+                {currentDevice && (
+                  <Text style={styles.modalSubtitle}>Device: {currentDevice}</Text>
+                )}
+              </View>
               <TouchableOpacity 
                 onPress={() => setModalVisible(false)}
                 style={styles.closeButton}
@@ -618,48 +926,48 @@ const SchedulerPage = ({ navigation }) => {
                   })}
                   maxLength={4}
                 />
-                <Text style={styles.durationUnit}>seconds</Text>
+                <Text style={styles.durationUnit}>sec</Text>
               </View>
             </View>
 
             {/* Days Selection */}
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Repeat on</Text>
-              <View style={styles.daysRow}>
+              <View style={styles.daysContainer}>
                 {Object.keys(daysValues).map(day => (
                   <TouchableOpacity
                     key={day}
                     style={[
-                      styles.dayButton,
-                      isDaySelected(day) && styles.dayButtonSelected
+                      styles.dayChip,
+                      isDaySelected(day) && styles.dayChipActive
                     ]}
                     onPress={() => toggleDay(day)}
                   >
-                    <Text style={isDaySelected(day) ? styles.dayButtonTextSelected : styles.dayButtonText}>
-                      {day.substring(0, 1)}
+                    <Text style={isDaySelected(day) ? styles.dayChipTextActive : styles.dayChipText}>
+                      {day.substring(0, 3)}
                     </Text>
                   </TouchableOpacity>
                 ))}
               </View>
-              <Text style={styles.daysHint}>
+              <Text style={styles.daysSummary}>
                 {formatDays(currentSchedule.dow)}
               </Text>
             </View>
 
-            <View style={styles.modalButtons}>
+            <View style={styles.modalFooter}>
               <TouchableOpacity 
-                style={[styles.modalButton, styles.cancelButton]}
+                style={styles.cancelButton}
                 onPress={() => setModalVisible(false)}
               >
-                <Text style={styles.cancelButtonText}>CANCEL</Text>
+                <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity 
-                style={[styles.modalButton, styles.saveButton]}
+                style={[styles.saveButton, (!isOnline || !currentDevice) && styles.saveButtonDisabled]}
                 onPress={saveSchedule}
-                disabled={!isOnline}
+                disabled={!isOnline || !currentDevice}
               >
                 <Text style={styles.saveButtonText}>
-                  {isOnline ? "SAVE" : "OFFLINE"}
+                  {!currentDevice ? "No Device" : !isOnline ? "Offline" : "Save"}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -675,67 +983,142 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f8f9fa',
   },
-  contentContainer: {
-    flex: 1,
-    paddingHorizontal: 20,
-  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingTop: 20,
-    paddingBottom: 20,
     paddingHorizontal: 20,
+    paddingBottom: 16,
     backgroundColor: 'white',
     borderBottomWidth: 1,
     borderBottomColor: '#E2E8F0',
   },
   headerTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '700',
     color: '#2D3748',
   },
   scheduleCount: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#718096',
-    marginTop: 4,
+    marginTop: 2,
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 15,
+    gap: 12,
   },
   refreshButton: {
-    padding: 8,
-    borderRadius: 8,
-    backgroundColor: '#F8F9FA',
+    padding: 6,
+    borderRadius: 6,
   },
   refreshButtonDisabled: {
     opacity: 0.5,
   },
   statusIndicator: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
   statusText: {
     color: 'white',
     fontWeight: '600',
-    fontSize: 12,
+    fontSize: 11,
   },
-  debugContainer: {
-    backgroundColor: '#EDF2F7',
-    padding: 10,
-    marginHorizontal: 20,
-    marginTop: 10,
-    borderRadius: 8,
+  deviceSection: {
+    backgroundColor: 'white',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  deviceSectionTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#718096',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  deviceScrollView: {
+    flexDirection: 'row',
+  },
+  deviceChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F7FAFC',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginRight: 8,
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
-  debugText: {
+  deviceChipActive: {
+    backgroundColor: '#5E72E4',
+    borderColor: '#5E72E4',
+  },
+  deviceChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#5E72E4',
+    marginLeft: 4,
+  },
+  deviceChipTextActive: {
+    color: 'white',
+  },
+  nextRunContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EBF4FF',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#C3DDFD',
+  },
+  nextRunContainerRefreshing: {
+    backgroundColor: '#E6F7FF',
+  },
+  nextRunIcon: {
+    marginRight: 12,
+  },
+  nextRunTextContainer: {
+    flex: 1,
+  },
+  nextRunHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  nextRunLabel: {
     fontSize: 12,
     color: '#4A5568',
-    fontFamily: 'monospace',
+    fontWeight: '600',
+    marginRight: 6,
+  },
+  refreshIndicator: {
+    opacity: 0.7,
+  },
+  nextRunTime: {
+    fontSize: 14,
+    color: '#2D3748',
+    fontWeight: '700',
+  },
+  refreshingIcon: {
+    animationDuration: '1s',
+    animationIterationCount: 'infinite',
+    animationTimingFunction: 'linear',
+    animationKeyframes: [
+      {
+        '0%': { transform: [{ rotate: '0deg' }] },
+        '100%': { transform: [{ rotate: '360deg' }] },
+      },
+    ],
+  },
+  content: {
+    flex: 1,
+    paddingHorizontal: 20,
   },
   addButton: {
     flexDirection: 'row',
@@ -743,65 +1126,54 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#5E72E4',
     borderRadius: 10,
-    padding: 16,
+    padding: 14,
     marginTop: 20,
-    marginBottom: 20,
+    marginBottom: 16,
   },
   addButtonDisabled: {
-    backgroundColor: '#A0AEC0',
+    backgroundColor: '#CBD5E0',
   },
   addButtonText: {
     color: 'white',
-    fontWeight: '700',
-    fontSize: 16,
-    marginLeft: 10,
+    fontWeight: '600',
+    fontSize: 15,
+    marginLeft: 8,
   },
   loadingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 20,
+    padding: 24,
     backgroundColor: '#F8F9FA',
     borderRadius: 10,
-    marginBottom: 20,
+    marginTop: 10,
   },
   loadingText: {
     color: '#4A5568',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '500',
     marginLeft: 12,
   },
-  schedulesScrollView: {
-    flex: 1,
-  },
-  schedulesContainer: {
+  schedulesList: {
     paddingBottom: 30,
   },
-  scheduleItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  scheduleCard: {
     backgroundColor: 'white',
     borderRadius: 12,
-    padding: 20,
-    marginBottom: 12,
+    padding: 16,
+    marginBottom: 10,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  scheduleInfo: {
-    flex: 1,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
   },
   scheduleHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 8,
   },
-  scheduleIndexBadge: {
+  scheduleIndex: {
     backgroundColor: '#5E72E4',
     borderRadius: 6,
     paddingHorizontal: 8,
@@ -810,93 +1182,73 @@ const styles = StyleSheet.create({
   },
   scheduleIndexText: {
     color: 'white',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
   },
+  scheduleTimeContainer: {
+    flex: 1,
+  },
   scheduleTime: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '600',
     color: '#2D3748',
-    marginRight: 12,
   },
   scheduleDuration: {
-    fontSize: 16,
-    color: '#718096',
-    fontWeight: '500',
-  },
-  scheduleDaysText: {
     fontSize: 14,
-    color: '#4A5568',
-    marginBottom: 4,
-  },
-  scheduleRawText: {
-    fontSize: 10,
-    color: '#A0AEC0',
-    fontFamily: 'monospace',
+    color: '#718096',
+    marginTop: 2,
   },
   scheduleActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    gap: 8,
   },
   actionButton: {
-    padding: 8,
-    borderRadius: 8,
+    padding: 6,
+    borderRadius: 6,
     backgroundColor: '#F8F9FA',
   },
-  emptyContainer: {
+  scheduleDays: {
+    fontSize: 13,
+    color: '#4A5568',
+  },
+  emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 80,
+    paddingVertical: 60,
     paddingHorizontal: 40,
   },
   emptyText: {
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '600',
     color: '#4A5568',
-    marginTop: 20,
+    marginTop: 16,
     marginBottom: 8,
   },
   emptySubtext: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#718096',
     textAlign: 'center',
-    lineHeight: 24,
+    lineHeight: 20,
   },
-  retryButton: {
-    marginTop: 24,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    backgroundColor: '#5E72E4',
-    borderRadius: 8,
-  },
-  retryButtonText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  modalContainer: {
+  modalOverlay: {
     flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    padding: 20,
   },
-  modalContent: {
+  modalContainer: {
     backgroundColor: 'white',
     borderRadius: 16,
     padding: 24,
-    width: '90%',
+    width: '100%',
     maxWidth: 400,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 16,
-    elevation: 10,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: 24,
   },
   modalTitle: {
@@ -904,11 +1256,16 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#2D3748',
   },
+  modalSubtitle: {
+    fontSize: 12,
+    color: '#718096',
+    marginTop: 4,
+  },
   closeButton: {
     padding: 4,
   },
   inputGroup: {
-    marginBottom: 24,
+    marginBottom: 20,
   },
   inputLabel: {
     fontSize: 14,
@@ -923,11 +1280,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E2E8F0',
     borderRadius: 10,
-    padding: 16,
+    padding: 14,
     backgroundColor: '#F8F9FA',
   },
   timeInputText: {
-    fontSize: 18,
+    fontSize: 16,
     color: '#2D3748',
     fontWeight: '500',
   },
@@ -940,7 +1297,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E2E8F0',
     borderRadius: 10,
-    padding: 16,
+    padding: 14,
     fontSize: 16,
     backgroundColor: '#F8F9FA',
     marginRight: 12,
@@ -949,72 +1306,72 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#718096',
   },
-  daysRow: {
+  daysContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 6,
     marginTop: 8,
   },
-  dayButton: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    justifyContent: 'center',
-    alignItems: 'center',
+  dayChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
     backgroundColor: '#F8F9FA',
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
-  dayButtonSelected: {
+  dayChipActive: {
     backgroundColor: '#5E72E4',
     borderColor: '#5E72E4',
   },
-  dayButtonText: {
-    fontSize: 13,
+  dayChipText: {
+    fontSize: 12,
     fontWeight: '600',
-    color: '#A0AEC0',
+    color: '#718096',
   },
-  dayButtonTextSelected: {
-    fontSize: 13,
-    fontWeight: '600',
+  dayChipTextActive: {
     color: 'white',
   },
-  daysHint: {
-    fontSize: 14,
+  daysSummary: {
+    fontSize: 13,
     color: '#5E72E4',
     marginTop: 12,
     fontWeight: '500',
   },
-  modalButtons: {
+  modalFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 8,
   },
-  modalButton: {
+  cancelButton: {
     flex: 1,
-    paddingVertical: 16,
+    paddingVertical: 14,
     borderRadius: 10,
     alignItems: 'center',
-    marginHorizontal: 8,
-  },
-  cancelButton: {
+    marginRight: 8,
     backgroundColor: '#F8F9FA',
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
   saveButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginLeft: 8,
     backgroundColor: '#5E72E4',
   },
   saveButtonDisabled: {
-    backgroundColor: '#A0AEC0',
+    backgroundColor: '#CBD5E0',
   },
   cancelButtonText: {
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#4A5568',
   },
   saveButtonText: {
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '600',
     color: 'white',
   },
 });

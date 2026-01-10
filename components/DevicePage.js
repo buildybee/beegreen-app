@@ -267,7 +267,7 @@ setDevice(JSON.stringify(data, null, 2));
       Alert.alert("Success", `WiFi credentials saved for ${wifiSSID}`);
       setShowWifiForm(false);
       setShowWifiModal(false);
-      setShowAddDevice(false);
+      setShowAddDevice(true);
 	  console.log('device selected..........' );
     } catch (error) {
       console.error('Error saving WiFi credentials:', error);
