@@ -28,6 +28,7 @@ export const SCHEDULER_TOPICS = [
   'status',
   'get_schedules_response',
   'next_schedule_due',
+  'tank_empty',
 ];
 
 /**
@@ -36,13 +37,15 @@ export const SCHEDULER_TOPICS = [
 export const CONTROLLER_TOPICS = [
   'status',
   'pump_status',
+  'tank_empty',
 ];
 
 /**
- * Topic suffixes for device page (version only)
+ * Topic suffixes for device page (version and tank status)
  */
 export const DEVICE_TOPICS = [
   'version',
+  'tank_empty',
 ];
 
 /**

@@ -24,6 +24,7 @@ import { useWifiCredentials } from '../services/wifi';
 import { useDevices, extractDeviceId, extractDeviceNameFromHtml } from '../services/devices';
 import { subscribeToDevice, parseDeviceIdFromTopic, DEVICE_TOPICS } from '../services/mqtt';
 import { parseStringPayload } from './tools';
+import TankIndicator from './TankIndicator';
 
 const DevicePage = ({ navigation }) => {
   // Get config from auth context - no need for useEffect to load from SecureStore
@@ -74,6 +75,12 @@ const DevicePage = ({ navigation }) => {
   const [mqttClient, setMqttClient] = useState(null);
   const subscribedDevicesRef = useRef(new Set());
 
+  // Calibration state
+  const [calibratingDeviceId, setCalibratingDeviceId] = useState(null);
+
+  // Tank status per device (deviceId -> boolean or null)
+  const [tankStatus, setTankStatus] = useState({});
+
   // Handle MQTT version messages
   const handleMqttMessage = useCallback((message) => {
     const topic = message.destinationName;
@@ -85,6 +92,14 @@ const DevicePage = ({ navigation }) => {
         updateFirmwareVersion(deviceId, version);
         console.log(`DevicePage: Updated firmware version for ${deviceId}: ${version}`);
       }
+    }
+
+    // Handle tank_empty messages
+    if (topic.endsWith('/tank_empty') && deviceId) {
+      const payload = parseStringPayload(message.payloadString);
+      const isEmpty = payload === '1';
+      setTankStatus(prev => ({ ...prev, [deviceId]: isEmpty }));
+      console.log(`DevicePage: Tank status for ${deviceId}: ${isEmpty ? 'EMPTY' : 'NOT EMPTY'}`);
     }
   }, [updateFirmwareVersion]);
 
@@ -597,6 +612,43 @@ const DevicePage = ({ navigation }) => {
   };
 
   /**
+   * Handle calibration request
+   */
+  const handleCalibrateDevice = (deviceId) => {
+    if (!mqttClient || !mqttClient.isConnected()) {
+      Alert.alert('Error', 'MQTT connection not available. Please try again.');
+      return;
+    }
+
+    setCalibratingDeviceId(deviceId);
+    const topic = `${deviceId}/calibrate`;
+    const payload = '1'; // Send 1 to trigger calibration
+
+    try {
+      const message = new Paho.Message(payload);
+      message.destinationName = topic;
+      message.qos = 1;
+      message.retained = false;
+
+      mqttClient.send(message);
+      console.log(`DevicePage: Sent calibration command to ${topic}`);
+
+      // Show success message
+      Alert.alert('Calibration Started', `10-second pump calibration started for ${deviceId}`);
+
+      // Clear calibrating state after 12 seconds (10s calibration + 2s buffer)
+      setTimeout(() => {
+        setCalibratingDeviceId(null);
+        Alert.alert('Calibration Complete', 'Device calibration finished. Current threshold has been auto-set.');
+      }, 12000);
+    } catch (error) {
+      console.error('DevicePage: Error sending calibration command:', error);
+      Alert.alert('Error', 'Failed to send calibration command');
+      setCalibratingDeviceId(null);
+    }
+  };
+
+  /**
    * Render a single device item in the list
    */
   const renderDeviceItem = (deviceItem) => (
@@ -627,6 +679,21 @@ const DevicePage = ({ navigation }) => {
       </View>
       
       <View style={styles.deviceActions}>
+        <TouchableOpacity
+          style={[
+            styles.calibrateButton,
+            !deviceItem.active && styles.calibrateButtonDisabled,
+            calibratingDeviceId === deviceItem.id && styles.calibrateButtonCalibrating
+          ]}
+          onPress={() => handleCalibrateDevice(deviceItem.id)}
+          disabled={!deviceItem.active || calibratingDeviceId === deviceItem.id}
+        >
+          {calibratingDeviceId === deviceItem.id ? (
+            <ActivityIndicator color='white' size='small' />
+          ) : (
+            <MaterialIcons name='settings' size={22} color={deviceItem.active ? '#FFC107' : '#BDBDBD'} />
+          )}
+        </TouchableOpacity>
         <Switch
           value={deviceItem.active}
           onValueChange={() => handleToggleDevice(deviceItem.id, deviceItem.active)}
@@ -679,7 +746,14 @@ const DevicePage = ({ navigation }) => {
           {/* Device List Section */}
           <View style={styles.deviceListContainer}>
             <View style={styles.deviceListHeader}>
-              <Text style={styles.deviceListTitle}>My Devices</Text>
+              <View style={styles.deviceListTitleRow}>
+                <Text style={styles.deviceListTitle}>My Devices</Text>
+                <TankIndicator
+                  isEmpty={devices.length > 0 ? tankStatus[devices.find(d => d.active)?.id] : null}
+                  showLabel={true}
+                  size="small"
+                />
+              </View>
               <TouchableOpacity onPress={refreshDevices} disabled={devicesLoading}>
                 {devicesLoading ? (
                   <ActivityIndicator size='small' color='#4CAF50' />
@@ -876,6 +950,25 @@ const DevicePage = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
+  calibrateButton: {
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+    borderColor: '#FFC107',
+    borderRadius: 20,
+    borderWidth: 1.5,
+    height: 36,
+    justifyContent: 'center',
+    marginRight: 8,
+    width: 36,
+  },
+  calibrateButtonDisabled: {
+    borderColor: '#BDBDBD',
+    opacity: 0.5,
+  },
+  calibrateButtonCalibrating: {
+    borderColor: '#FFC107',
+    opacity: 1,
+  },
   closeButton: {
     alignItems: 'center',
     backgroundColor: '#f44336',
@@ -923,6 +1016,10 @@ const styles = StyleSheet.create({
     maxWidth: 400,
   },
   deviceListHeader: {
+    flexDirection: 'column',
+    marginBottom: 10,
+  },
+  deviceListTitleRow: {
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',

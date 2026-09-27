@@ -19,6 +19,7 @@ import * as SecureStore from 'expo-secure-store';
 import * as Notifications from 'expo-notifications';
 import { parseArrayPayload, parseStringPayload } from './tools';
 import DeviceSelector from './DeviceSelector';
+import TankIndicator from './TankIndicator';
 import { useDevices } from '../services/devices';
 import { 
   subscribeToDevice, 
@@ -40,6 +41,7 @@ const SchedulerPage = ({ navigation }) => {
   // State management
   const [schedules, setSchedules] = useState({});
   const [deviceStatus, setDeviceStatus] = useState({}); // Per-device online/offline status
+  const [tankStatus, setTankStatus] = useState({}); // Per-device tank status
   const [modalVisible, setModalVisible] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [currentSchedule, setCurrentSchedule] = useState({
@@ -187,7 +189,7 @@ const SchedulerPage = ({ navigation }) => {
             min: parseInt(parts[2]) || 0,
             dur: parseInt(parts[3]) || 0,
             dow: parseInt(parts[4]) || 0,
-            en: true,
+            en: 1,
           });
         } else if (parts.length === 6) {
           schedules.push({
@@ -196,7 +198,7 @@ const SchedulerPage = ({ navigation }) => {
             min: parseInt(parts[2]) || 0,
             dur: parseInt(parts[3]) || 0,
             dow: parseInt(parts[4]) || 0,
-            en: parts[5] === '1' || parts[5].toLowerCase() === 'true',
+            en: 1,
           });
         }
       } else if (item && typeof item === 'object') {
@@ -206,7 +208,7 @@ const SchedulerPage = ({ navigation }) => {
           min: item.min || item.MIN || item.m || 0,
           dur: item.dur || item.DUR || item.d || item.duration || 0,
           dow: item.dow || item.DOW || item.w || item.daysofweek || 0,
-          en: true,
+          en: 1,
         });
       }
     });
@@ -348,6 +350,15 @@ const SchedulerPage = ({ navigation }) => {
       }
 
       setIsLoading(false);
+    }
+    // Handle tank_empty messages
+    else if (topic.endsWith('/tank_empty')) {
+      if (deviceId) {
+        const payloadStr = parseStringPayload(payload);
+        const isEmpty = payloadStr === '1';
+        setTankStatus(prev => ({ ...prev, [deviceId]: isEmpty }));
+        console.log(`SchedulerPage: Tank status for ${deviceId}: ${isEmpty ? 'EMPTY' : 'NOT EMPTY'}`);
+      }
     }
   }, [updateDeviceStatus]);
 
@@ -627,12 +638,22 @@ const SchedulerPage = ({ navigation }) => {
         onSelectDevice={switchDevice}
       />
 
-      {/* Next Run Time Display */}
-      {currentDevice && deviceAvailable && (
+        {/* Tank Status Indicator */}
+        {currentDevice && (
+          <View style={styles.tankStatusContainer}>
+            <TankIndicator
+              isEmpty={tankStatus[currentDevice.id]}
+              showLabel={true}
+              size="medium"
+            />
+          </View>
+        )}
         <TouchableOpacity
-          style={[styles.nextRunContainer, refreshingNextRun && styles.nextRunContainerRefreshing]}
+          style={[
+            styles.nextRunContainer,
+            refreshingNextRun && styles.nextRunContainerRefreshing,
+          ]}
           onPress={requestNextRunTime}
-          activeOpacity={0.7}
           disabled={refreshingNextRun || !deviceAvailable}
         >
           <View style={styles.nextRunIcon}>
@@ -662,7 +683,6 @@ const SchedulerPage = ({ navigation }) => {
             </Text>
           </View>
         </TouchableOpacity>
-      )}
 
       {/* Main Content */}
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -1253,6 +1273,12 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 11,
     fontWeight: '600',
+  },
+  tankStatusContainer: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 12,
+    alignItems: 'flex-start',
   },
   timeInput: {
     alignItems: 'center',

@@ -16,6 +16,7 @@ import Paho from 'paho-mqtt';
 import * as SecureStore from 'expo-secure-store';
 import * as Notifications from 'expo-notifications';
 import DeviceSelector from './DeviceSelector';
+import TankIndicator from './TankIndicator';
 import { useDevices } from '../services/devices';
 import { 
   subscribeToDevice, 
@@ -51,6 +52,7 @@ const ControlPage = ({ navigation }) => {
   const [notificationPermission, setNotificationPermission] = useState(false);
   const [currentDevice, setCurrentDevice] = useState(null); // Now stores device object
   const [deviceStatus, setDeviceStatus] = useState({}); // Per-device online/offline status
+  const [tankStatus, setTankStatus] = useState({}); // Per-device tank status
   const [mqttConnected, setMqttConnected] = useState(false);
 
   const timerRef = useRef(null);
@@ -228,6 +230,15 @@ const ControlPage = ({ navigation }) => {
         }
       }
     }
+    // Handle tank_empty messages
+    else if (topic.endsWith('/tank_empty')) {
+      if (deviceId) {
+        const payload = parseStringPayload(message.payloadString);
+        const isEmpty = payload === '1';
+        setTankStatus(prev => ({ ...prev, [deviceId]: isEmpty }));
+        console.log(`ControlPage: Tank status for ${deviceId}: ${isEmpty ? 'EMPTY' : 'NOT EMPTY'}`);
+      }
+    }
   }, [currentDevice, updateDeviceStatus]);
 
   // Initialize MQTT connection
@@ -385,6 +396,17 @@ const ControlPage = ({ navigation }) => {
           deviceStatus={deviceStatus}
           onSelectDevice={switchDevice}
         />
+
+        {/* Tank Status Indicator */}
+        {currentDevice && (
+          <View style={styles.tankStatusContainer}>
+            <TankIndicator
+              isEmpty={tankStatus[currentDevice.id]}
+              showLabel={true}
+              size="medium"
+            />
+          </View>
+        )}
 
         <View style={styles.card}>
           <View style={styles.cardHeader}>
@@ -624,6 +646,12 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 12,
     fontWeight: '600',
+  },
+  tankStatusContainer: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 12,
+    alignItems: 'flex-start',
   },
   testNotificationButton: {
     backgroundColor: '#F7FAFC',

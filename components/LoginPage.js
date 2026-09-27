@@ -18,6 +18,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as Network from 'expo-network';
 import Paho from 'paho-mqtt';
 import { useAuth } from '../services/auth';
+import TankIndicator from './TankIndicator';
 
 const LoginPage = ({ navigation }) => {
   // Get auth context for login functionality
@@ -349,6 +350,7 @@ const LoginPage = ({ navigation }) => {
         >
           <View style={styles.signupContainer}>
             <Text style={styles.signupText}>BeeGreen</Text>
+            <TankIndicator isEmpty={null} showLabel={true} size="small" />
             <Text style={styles.subtitle}>Enter MQTT connection details</Text>
 
             <TextInput
