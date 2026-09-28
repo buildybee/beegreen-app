@@ -17,18 +17,23 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Network from 'expo-network';
-import * as SecureStore from 'expo-secure-store';
 import Paho from 'paho-mqtt';
 import { useAuth } from '../services/auth';
 import { useWifiCredentials } from '../services/wifi';
 import { useDevices, extractDeviceId, extractDeviceNameFromHtml } from '../services/devices';
-import { subscribeToDevice, parseDeviceIdFromTopic, DEVICE_TOPICS } from '../services/mqtt';
+import {
+  subscribeToDevice,
+  parseDeviceIdFromTopic,
+  DEVICE_TOPICS,
+  useMqtt,
+} from '../services/mqtt';
 import { parseStringPayload } from './tools';
 import TankIndicator from './TankIndicator';
 
 const DevicePage = ({ navigation }) => {
   // Get config from auth context - no need for useEffect to load from SecureStore
   const { config: savedData2, updateConfig } = useAuth();
+  const { client: mqttClient, isConnected: mqttConnected, addMessageListener } = useMqtt();
   
   // WiFi credentials service for password auto-fill
   const { savePassword: saveWifiPassword, getPassword: getSavedWifiPassword } = useWifiCredentials();
@@ -36,7 +41,7 @@ const DevicePage = ({ navigation }) => {
   // Device storage service
   const { 
     devices, 
-    loading: devicesLoading, 
+    loading: devicesLoading,
     addDevice, 
     setDeviceActive, 
     deleteDevice,
@@ -71,9 +76,8 @@ const DevicePage = ({ navigation }) => {
   const [editingDevice, setEditingDevice] = useState(null);
   const [editedDeviceName, setEditedDeviceName] = useState('');
 
-  // MQTT client for fetching firmware versions
-  const [mqttClient, setMqttClient] = useState(null);
   const subscribedDevicesRef = useRef(new Set());
+  const wasMqttConnectedRef = useRef(false);
 
   // Calibration state
   const [calibratingDeviceId, setCalibratingDeviceId] = useState(null);
@@ -117,62 +121,21 @@ const DevicePage = ({ navigation }) => {
     });
   }, [devices]);
 
-  // Initialize MQTT connection for firmware version fetching
+  useEffect(() => addMessageListener(handleMqttMessage), [addMessageListener, handleMqttMessage]);
+
   useEffect(() => {
-    const initializeMqtt = async () => {
-      const config = await SecureStore.getItemAsync('config');
-      if (!config) return;
-
-      const { mqttServer, mqttPort, mqttUser, mqttPassword } = JSON.parse(config);
-      if (!mqttServer) return;
-
-      const client = new Paho.Client(
-        mqttServer,
-        Number(mqttPort) || 8884,
-        `devicePage-${Math.random().toString(36).substr(2, 8)}`
-      );
-
-      client.onMessageArrived = handleMqttMessage;
-
-      client.onConnectionLost = (responseObject) => {
-        console.log('DevicePage: MQTT connection lost:', responseObject.errorMessage);
-      };
-
-      client.connect({
-        onSuccess: () => {
-          console.log('DevicePage: MQTT connected for firmware versions');
-          subscribeToActiveDeviceVersions(client);
-        },
-        onFailure: (err) => {
-          console.error('DevicePage: MQTT connection failed:', err);
-        },
-        useSSL: true,
-        userName: mqttUser,
-        password: mqttPassword,
-        reconnect: true,
-        keepAliveInterval: 30,
-      });
-
-      setMqttClient(client);
-    };
-
-    if (!devicesLoading && devices.length > 0) {
-      initializeMqtt();
+    if (wasMqttConnectedRef.current && !mqttConnected) {
+      subscribedDevicesRef.current.clear();
     }
 
-    return () => {
-      if (mqttClient && mqttClient.isConnected()) {
-        mqttClient.disconnect();
-      }
-    };
-  }, [devicesLoading, devices.length, handleMqttMessage]);
+    wasMqttConnectedRef.current = mqttConnected;
+  }, [mqttConnected]);
 
-  // Re-subscribe when devices change
   useEffect(() => {
-    if (mqttClient && mqttClient.isConnected()) {
+    if (mqttClient && mqttConnected) {
       subscribeToActiveDeviceVersions(mqttClient);
     }
-  }, [mqttClient, subscribeToActiveDeviceVersions]);
+  }, [mqttClient, mqttConnected, subscribeToActiveDeviceVersions]);
 
   // Enhanced fetch with Android compatibility
   const deviceFetch = async (url, options = {}) => {

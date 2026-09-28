@@ -13,18 +13,17 @@ import Slider from '@react-native-community/slider';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import Paho from 'paho-mqtt';
-import * as SecureStore from 'expo-secure-store';
 import * as Notifications from 'expo-notifications';
 import DeviceSelector from './DeviceSelector';
 import TankIndicator from './TankIndicator';
 import { useDevices } from '../services/devices';
 import { 
   subscribeToDevice, 
-  unsubscribeFromDevice, 
   parseDeviceIdFromTopic, 
   parseDeviceStatus as parseStatusPayload,
   CONTROLLER_TOPICS,
   buildTopic,
+  useMqtt,
 } from '../services/mqtt';
 import { parseStringPayload } from './tools';
 
@@ -38,6 +37,8 @@ Notifications.setNotificationHandler({
 });
 
 const ControlPage = ({ navigation }) => {
+  const { client, isConnected: mqttConnected, addMessageListener } = useMqtt();
+
   // Device storage hook
   const { 
     devices: storedDevices, 
@@ -48,12 +49,10 @@ const ControlPage = ({ navigation }) => {
   const [isRunning, setIsRunning] = useState(false);
   const [pumpStatus, setPumpStatus] = useState('off');
   const [duration, setDuration] = useState(5);
-  const [client, setClient] = useState(null);
   const [notificationPermission, setNotificationPermission] = useState(false);
   const [currentDevice, setCurrentDevice] = useState(null); // Now stores device object
   const [deviceStatus, setDeviceStatus] = useState({}); // Per-device online/offline status
   const [tankStatus, setTankStatus] = useState({}); // Per-device tank status
-  const [mqttConnected, setMqttConnected] = useState(false);
 
   const timerRef = useRef(null);
   const lastPumpStatusRef = useRef('off');
@@ -61,6 +60,7 @@ const ControlPage = ({ navigation }) => {
   const responseListener = useRef();
   const deviceStatusRef = useRef({});
   const subscribedDevicesRef = useRef(new Set());
+  const wasMqttConnectedRef = useRef(false);
 
   // Refresh devices when page is focused (to get updated names, etc.)
   useFocusEffect(
@@ -241,76 +241,27 @@ const ControlPage = ({ navigation }) => {
     }
   }, [currentDevice, updateDeviceStatus]);
 
-  // Initialize MQTT connection
   useEffect(() => {
-    const initializeMqtt = async () => {
-      const config = await SecureStore.getItemAsync('config');
-      if (config) {
-        const parsedConfig = JSON.parse(config);
+    return addMessageListener(handleMqttMessage);
+  }, [addMessageListener, handleMqttMessage]);
 
-        if (parsedConfig.mqttServer) {
-          const mqttClient = new Paho.Client(
-            parsedConfig.mqttServer,
-            Number(parsedConfig.mqttPort),
-            'clientId-' + Math.random().toString(16).substr(2, 8)
-          );
-
-          mqttClient.onMessageArrived = handleMqttMessage;
-
-          mqttClient.onConnectionLost = responseObject => {
-            if (responseObject.errorCode !== 0) {
-              console.log('Connection lost:', responseObject.errorMessage);
-              setMqttConnected(false);
-              // Mark all devices as offline
-              Object.keys(deviceStatusRef.current).forEach(deviceId => {
-                updateDeviceStatus(deviceId, false);
-              });
-              sendPushNotification('🔌 Connection Lost', 'Lost connection to MQTT broker');
-            }
-          };
-
-          mqttClient.connect({
-            onSuccess: () => {
-              setMqttConnected(true);
-              console.log('ControlPage: MQTT connected');
-              
-              // Subscribe to active devices
-              subscribeToActiveDevices(mqttClient);
-              
-              // Set first active device as current
-              if (storedDevices.length > 0) {
-                const activeDevices = storedDevices.filter(d => d.active);
-                if (activeDevices.length > 0) {
-                  setCurrentDevice(activeDevices[0]);
-                }
-              }
-
-              sendPushNotification('🔗 Connected', 'Successfully connected to MQTT broker');
-            },
-            onFailure: err => {
-              console.error('Connection failed', err);
-              setMqttConnected(false);
-              sendPushNotification('❌ Connection Failed', 'Unable to connect to MQTT broker');
-            },
-            useSSL: true,
-            userName: parsedConfig.mqttUser,
-            password: parsedConfig.mqttPassword,
-          });
-
-          setClient(mqttClient);
-        }
-      }
-    };
-
-    // Wait for devices to load before initializing MQTT
-    if (!devicesLoading && storedDevices.length > 0) {
-      initializeMqtt();
+  useEffect(() => {
+    if (wasMqttConnectedRef.current && !mqttConnected) {
+      subscribedDevicesRef.current.clear();
+      Object.keys(deviceStatusRef.current).forEach(deviceId => {
+        updateDeviceStatus(deviceId, false);
+      });
+      sendPushNotification('🔌 Connection Lost', 'Lost connection to MQTT broker');
     }
 
+    wasMqttConnectedRef.current = mqttConnected;
+  }, [mqttConnected, sendPushNotification, updateDeviceStatus]);
+
+  useEffect(() => {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [devicesLoading, storedDevices.length]);
+  }, []);
 
   // Re-subscribe when devices change
   useEffect(() => {
@@ -318,6 +269,15 @@ const ControlPage = ({ navigation }) => {
       subscribeToActiveDevices(client);
     }
   }, [client, mqttConnected, subscribeToActiveDevices]);
+
+  useEffect(() => {
+    if (!mqttConnected || devicesLoading || currentDevice) return;
+
+    const firstActiveDevice = storedDevices.find(device => device.active);
+    if (firstActiveDevice) {
+      setCurrentDevice(firstActiveDevice);
+    }
+  }, [currentDevice, devicesLoading, mqttConnected, storedDevices]);
 
   const handlePumpControl = start => {
     if (!client || !client.isConnected() || !isDeviceAvailable()) {

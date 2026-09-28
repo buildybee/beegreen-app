@@ -131,9 +131,10 @@ const LoginPage = ({ navigation }) => {
     }
 
     setIsConnecting(true);
+    let mqttClient = null;
 
     try {
-      const mqttClient = new Paho.Client(
+      mqttClient = new Paho.Client(
         mqttServer,
         Number(mqttPort),
         'clientId-' + Math.random().toString(16).substr(2, 8)
@@ -197,6 +198,9 @@ const LoginPage = ({ navigation }) => {
       
       Alert.alert('Connection Failed', errorMessage);
     } finally {
+      if (mqttClient?.isConnected()) {
+        mqttClient.disconnect();
+      }
       setIsConnecting(false);
     }
   };

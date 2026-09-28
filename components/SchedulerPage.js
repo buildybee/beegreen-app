@@ -23,14 +23,16 @@ import TankIndicator from './TankIndicator';
 import { useDevices } from '../services/devices';
 import { 
   subscribeToDevice, 
-  unsubscribeFromDevice, 
   parseDeviceIdFromTopic, 
   parseDeviceStatus as parseStatusPayload,
   SCHEDULER_TOPICS,
   buildTopic,
+  useMqtt,
 } from '../services/mqtt';
 
 const SchedulerPage = ({ navigation }) => {
+  const { client, isConnected: mqttConnected, addMessageListener } = useMqtt();
+
   // Device storage hook
   const { 
     devices: storedDevices, 
@@ -53,11 +55,9 @@ const SchedulerPage = ({ navigation }) => {
     en: 1,
   });
   const [currentDevice, setCurrentDevice] = useState(null); // Now stores device object
-  const [client, setClient] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [nextRunTimes, setNextRunTimes] = useState({});
   const [refreshingNextRun, setRefreshingNextRun] = useState(true);
-  const [mqttConnected, setMqttConnected] = useState(false);
 
   // Refs
   const schedulesRef = useRef({});
@@ -65,6 +65,7 @@ const SchedulerPage = ({ navigation }) => {
   const refreshingNextRunRef = useRef(false);
   const deviceStatusRef = useRef({});
   const subscribedDevicesRef = useRef(new Set());
+  const wasMqttConnectedRef = useRef(false);
 
   // Refresh devices when page is focused (to get updated names, etc.)
   useFocusEffect(
@@ -362,93 +363,36 @@ const SchedulerPage = ({ navigation }) => {
     }
   }, [updateDeviceStatus]);
 
-  // Initialize MQTT connection
   useEffect(() => {
-    const initializeMqtt = async () => {
-      const config = await SecureStore.getItemAsync('config');
-      if (config) {
-        const { mqttServer, mqttUser, mqttPassword } = JSON.parse(config);
+    return addMessageListener(handleMqttMessage);
+  }, [addMessageListener, handleMqttMessage]);
 
-        const mqttClient = new Paho.Client(
-          mqttServer,
-          8884,
-          `clientId-${Math.random().toString(36).substr(2, 8)}`
-        );
-
-        mqttClient.onMessageArrived = handleMqttMessage;
-
-        mqttClient.onConnectionLost = responseObject => {
-          console.log('Connection lost:', responseObject.errorMessage);
-          setMqttConnected(false);
-          // Mark all devices as offline
-          Object.keys(deviceStatusRef.current).forEach(deviceId => {
-            updateDeviceStatus(deviceId, false);
-          });
-        };
-
-        mqttClient.connect({
-          onSuccess: () => {
-            setMqttConnected(true);
-            console.log('SchedulerPage: MQTT connected');
-            
-            // Subscribe to active devices
-            subscribeToActiveDevices(mqttClient);
-            
-            // Set first active+online device as current (or first active if none online yet)
-            if (storedDevices.length > 0) {
-              const activeDevices = storedDevices.filter(d => d.active);
-              if (activeDevices.length > 0) {
-                setCurrentDevice(activeDevices[0]);
-                loadSchedulesForDevice(activeDevices[0].id);
-              }
-            }
-          },
-          onFailure: err => {
-            console.error('Connection failed:', err);
-            Alert.alert(
-              'Connection Error',
-              'Failed to connect to MQTT server. Showing locally saved schedules.'
-            );
-            setMqttConnected(false);
-            setIsLoading(false);
-          },
-          useSSL: true,
-          userName: mqttUser,
-          password: mqttPassword,
-          reconnect: true,
-          keepAliveInterval: 30,
-        });
-
-        setClient(mqttClient);
-      } else {
-        Alert.alert(
-          'Configuration Missing',
-          'Please configure MQTT settings first.'
-        );
-        setIsLoading(false);
-      }
-    };
-
-    // Wait for devices to load before initializing MQTT
-    if (!devicesLoading && storedDevices.length > 0) {
-      initializeMqtt();
-    } else if (!devicesLoading && storedDevices.length === 0) {
-      setIsLoading(false);
+  useEffect(() => {
+    if (wasMqttConnectedRef.current && !mqttConnected) {
+      subscribedDevicesRef.current.clear();
+      Object.keys(deviceStatusRef.current).forEach(deviceId => {
+        updateDeviceStatus(deviceId, false);
+      });
     }
 
-    return () => {
-      if (client) {
-        client.disconnect();
-      }
-    };
-  }, [devicesLoading, storedDevices.length]);
+    wasMqttConnectedRef.current = mqttConnected;
+  }, [mqttConnected, updateDeviceStatus]);
 
-  // Re-subscribe when devices change
   useEffect(() => {
     if (client && mqttConnected) {
       subscribeToActiveDevices(client);
     }
   }, [client, mqttConnected, subscribeToActiveDevices]);
+
+  useEffect(() => {
+    if (devicesLoading || currentDevice) return;
+
+    const firstActiveDevice = storedDevices.find(device => device.active);
+    if (firstActiveDevice) {
+      setCurrentDevice(firstActiveDevice);
+      loadSchedulesForDevice(firstActiveDevice.id);
+    }
+  }, [currentDevice, devicesLoading, storedDevices]);
 
   const requestSchedules = () => {
     if (!client || !client.isConnected() || !currentDevice || !isDeviceAvailable()) {
