@@ -37,7 +37,7 @@ Notifications.setNotificationHandler({
 });
 
 const ControlPage = ({ navigation }) => {
-  const { client, isConnected: mqttConnected, addMessageListener } = useMqtt();
+  const { client, isConnected: mqttConnected, addMessageListener, reconnect } = useMqtt();
 
   // Device storage hook
   const { 
@@ -342,10 +342,22 @@ const ControlPage = ({ navigation }) => {
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>BeeGreen Controller</Text>
-          <View
-            style={[styles.statusIndicator, { backgroundColor: mqttConnected ? '#4CAF50' : '#F44336' }]}
-          >
-            <Text style={styles.statusText}>{mqttConnected ? 'CONNECTED' : 'DISCONNECTED'}</Text>
+          <View style={styles.connectionActions}>
+            <TouchableOpacity
+              accessibilityHint='Attempts to reconnect to the MQTT broker'
+              accessibilityLabel='Reconnect MQTT'
+              accessibilityRole='button'
+              disabled={mqttConnected}
+              onPress={reconnect}
+              style={[styles.reconnectButton, mqttConnected && styles.reconnectButtonDisabled]}
+            >
+              <MaterialIcons name='refresh' size={22} color={mqttConnected ? '#CBD5E0' : '#5E72E4'} />
+            </TouchableOpacity>
+            <View
+              style={[styles.statusIndicator, { backgroundColor: mqttConnected ? '#4CAF50' : '#F44336' }]}
+            >
+              <Text style={styles.statusText}>{mqttConnected ? 'CONNECTED' : 'DISCONNECTED'}</Text>
+            </View>
           </View>
         </View>
 
@@ -498,6 +510,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginLeft: 10,
   },
+  connectionActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
   container: {
     backgroundColor: '#f8f9fa',
     flex: 1,
@@ -571,6 +588,12 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 12,
     marginLeft: 8,
+  },
+  reconnectButton: {
+    padding: 4,
+  },
+  reconnectButtonDisabled: {
+    opacity: 0.5,
   },
   slider: {
     height: 40,

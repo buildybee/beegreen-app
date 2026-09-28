@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import Paho from 'paho-mqtt';
 import { useAuth } from '../auth';
 
@@ -7,9 +8,12 @@ export const MqttContext = createContext(null);
 export const MqttProvider = ({ children }) => {
   const { isAuthenticated, config } = useAuth();
   const clientRef = useRef(null);
+  const appStateRef = useRef(AppState.currentState);
+  const [clientId] = useState(() => `beegreen-${Math.random().toString(36).slice(2, 10)}`);
   const messageHandlersRef = useRef(new Set());
   const [client, setClient] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [connectionGeneration, setConnectionGeneration] = useState(0);
 
   const mqttServer = config?.mqttServer;
   const mqttPort = config?.mqttPort;
@@ -25,16 +29,35 @@ export const MqttProvider = ({ children }) => {
     return () => messageHandlersRef.current.delete(listener);
   }, []);
 
+  const reconnect = useCallback(() => {
+    if (!isAuthenticated || !mqttServer || clientRef.current?.isConnected()) {
+      return false;
+    }
+
+    setConnectionGeneration(generation => generation + 1);
+    return true;
+  }, [isAuthenticated, mqttServer]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      const returningToForeground =
+        nextAppState === 'active' && /inactive|background/.test(appStateRef.current || '');
+
+      appStateRef.current = nextAppState;
+      if (returningToForeground) {
+        reconnect();
+      }
+    });
+
+    return () => subscription.remove();
+  }, [reconnect]);
+
   useEffect(() => {
     if (!isAuthenticated || !mqttServer) {
       return undefined;
     }
 
-    const mqttClient = new Paho.Client(
-      mqttServer,
-      Number(mqttPort) || 8884,
-      `beegreen-${Math.random().toString(36).slice(2, 10)}`
-    );
+    const mqttClient = new Paho.Client(mqttServer, Number(mqttPort) || 8884, clientId);
 
     clientRef.current = mqttClient;
 
@@ -85,19 +108,30 @@ export const MqttProvider = ({ children }) => {
         setIsConnected(false);
       }
 
-      if (mqttClient.isConnected()) {
+      try {
         mqttClient.disconnect();
+      } catch {
+        // Paho throws after cancelling a pending reconnect without an active socket.
       }
     };
-  }, [isAuthenticated, mqttPassword, mqttPort, mqttServer, mqttUser]);
+  }, [
+    clientId,
+    connectionGeneration,
+    isAuthenticated,
+    mqttPassword,
+    mqttPort,
+    mqttServer,
+    mqttUser,
+  ]);
 
   const contextValue = useMemo(
     () => ({
       client,
       isConnected,
       addMessageListener,
+      reconnect,
     }),
-    [addMessageListener, client, isConnected]
+    [addMessageListener, client, isConnected, reconnect]
   );
 
   return <MqttContext.Provider value={contextValue}>{children}</MqttContext.Provider>;

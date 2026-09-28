@@ -33,7 +33,7 @@ import TankIndicator from './TankIndicator';
 const DevicePage = ({ navigation }) => {
   // Get config from auth context - no need for useEffect to load from SecureStore
   const { config: savedData2, updateConfig } = useAuth();
-  const { client: mqttClient, isConnected: mqttConnected, addMessageListener } = useMqtt();
+  const { client: mqttClient, isConnected: mqttConnected, addMessageListener, reconnect } = useMqtt();
   
   // WiFi credentials service for password auto-fill
   const { savePassword: saveWifiPassword, getPassword: getSavedWifiPassword } = useWifiCredentials();
@@ -574,6 +574,13 @@ const DevicePage = ({ navigation }) => {
     setEditedDeviceName('');
   };
 
+  const handleRefreshDevices = useCallback(() => {
+    refreshDevices();
+    if (!mqttConnected) {
+      reconnect();
+    }
+  }, [mqttConnected, reconnect, refreshDevices]);
+
   /**
    * Handle calibration request
    */
@@ -717,7 +724,13 @@ const DevicePage = ({ navigation }) => {
                   size="small"
                 />
               </View>
-              <TouchableOpacity onPress={refreshDevices} disabled={devicesLoading}>
+              <TouchableOpacity
+                accessibilityHint={mqttConnected ? 'Refreshes the device list' : 'Refreshes the device list and reconnects MQTT'}
+                accessibilityLabel={mqttConnected ? 'Refresh devices' : 'Refresh devices and reconnect MQTT'}
+                accessibilityRole='button'
+                onPress={handleRefreshDevices}
+                disabled={devicesLoading}
+              >
                 {devicesLoading ? (
                   <ActivityIndicator size='small' color='#4CAF50' />
                 ) : (

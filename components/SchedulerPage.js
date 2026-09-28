@@ -31,7 +31,7 @@ import {
 } from '../services/mqtt';
 
 const SchedulerPage = ({ navigation }) => {
-  const { client, isConnected: mqttConnected, addMessageListener } = useMqtt();
+  const { client, isConnected: mqttConnected, addMessageListener, reconnect } = useMqtt();
 
   // Device storage hook
   const { 
@@ -543,6 +543,8 @@ const SchedulerPage = ({ navigation }) => {
   const nextRunTime = getCurrentDeviceNextRunTime();
   const deviceAvailable = isDeviceAvailable();
   const hasAnyOnlineDevice = storedDevices.some(d => d.active && deviceStatus[d.id] === 'online');
+  const canRefresh = !isLoading && (!mqttConnected || deviceAvailable);
+  const handleHeaderRefresh = mqttConnected ? requestSchedules : reconnect;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -560,11 +562,14 @@ const SchedulerPage = ({ navigation }) => {
         </View>
         <View style={styles.headerRight}>
           <TouchableOpacity
-            onPress={requestSchedules}
-            style={[styles.refreshButton, (!deviceAvailable || isLoading) && styles.refreshButtonDisabled]}
-            disabled={!deviceAvailable || isLoading}
+            accessibilityHint={mqttConnected ? 'Refreshes schedules from the selected device' : 'Attempts to reconnect to the MQTT broker'}
+            accessibilityLabel={mqttConnected ? 'Refresh schedules' : 'Reconnect MQTT'}
+            accessibilityRole='button'
+            onPress={handleHeaderRefresh}
+            style={[styles.refreshButton, !canRefresh && styles.refreshButtonDisabled]}
+            disabled={!canRefresh}
           >
-            <MaterialIcons name='refresh' size={22} color={deviceAvailable ? '#5E72E4' : '#CBD5E0'} />
+            <MaterialIcons name='refresh' size={22} color={canRefresh ? '#5E72E4' : '#CBD5E0'} />
           </TouchableOpacity>
           <View
             style={[styles.statusIndicator, { backgroundColor: mqttConnected ? '#4CAF50' : '#F44336' }]}
