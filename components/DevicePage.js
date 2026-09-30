@@ -581,6 +581,24 @@ const DevicePage = ({ navigation }) => {
     }
   }, [mqttConnected, reconnect, refreshDevices]);
 
+  const handleCalibrationPress = deviceId => {
+    Alert.alert(
+      'Calibrate Motor',
+      'This will run the motor for 10 seconds. Ensure water is available and the gardening setup is fully complete before proceeding.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Proceed',
+          onPress: () => handleCalibrateDevice(deviceId),
+        },
+      ],
+      { cancelable: true }
+    );
+  };
+
   /**
    * Handle calibration request
    */
@@ -655,7 +673,7 @@ const DevicePage = ({ navigation }) => {
             !deviceItem.active && styles.calibrateButtonDisabled,
             calibratingDeviceId === deviceItem.id && styles.calibrateButtonCalibrating
           ]}
-          onPress={() => handleCalibrateDevice(deviceItem.id)}
+          onPress={() => handleCalibrationPress(deviceItem.id)}
           disabled={!deviceItem.active || calibratingDeviceId === deviceItem.id}
         >
           {calibratingDeviceId === deviceItem.id ? (
