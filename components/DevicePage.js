@@ -17,28 +17,39 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Network from 'expo-network';
-import * as SecureStore from 'expo-secure-store';
 import Paho from 'paho-mqtt';
 import { useAuth } from '../services/auth';
 import { useWifiCredentials } from '../services/wifi';
 import { useDevices, extractDeviceId, extractDeviceNameFromHtml } from '../services/devices';
-import { subscribeToDevice, parseDeviceIdFromTopic, DEVICE_TOPICS } from '../services/mqtt';
+import {
+  subscribeToDevice,
+  parseDeviceIdFromTopic,
+  parseDeviceStatus,
+  DEVICE_TOPICS,
+  useMqtt,
+} from '../services/mqtt';
 import { parseStringPayload } from './tools';
-import TankIndicator from './TankIndicator';
 
 const DevicePage = ({ navigation }) => {
   // Get config from auth context - no need for useEffect to load from SecureStore
   const { config: savedData2, updateConfig } = useAuth();
-  
+  const {
+    client: mqttClient,
+    isConnected: mqttConnected,
+    addMessageListener,
+    reconnect,
+  } = useMqtt();
+
   // WiFi credentials service for password auto-fill
-  const { savePassword: saveWifiPassword, getPassword: getSavedWifiPassword } = useWifiCredentials();
+  const { savePassword: saveWifiPassword, getPassword: getSavedWifiPassword } =
+    useWifiCredentials();
 
   // Device storage service
-  const { 
-    devices, 
-    loading: devicesLoading, 
-    addDevice, 
-    setDeviceActive, 
+  const {
+    devices,
+    loading: devicesLoading,
+    addDevice,
+    setDeviceActive,
     deleteDevice,
     refreshDevices,
     deviceExists,
@@ -71,108 +82,74 @@ const DevicePage = ({ navigation }) => {
   const [editingDevice, setEditingDevice] = useState(null);
   const [editedDeviceName, setEditedDeviceName] = useState('');
 
-  // MQTT client for fetching firmware versions
-  const [mqttClient, setMqttClient] = useState(null);
   const subscribedDevicesRef = useRef(new Set());
+  const wasMqttConnectedRef = useRef(false);
 
   // Calibration state
   const [calibratingDeviceId, setCalibratingDeviceId] = useState(null);
 
-  // Tank status per device (deviceId -> boolean or null)
-  const [tankStatus, setTankStatus] = useState({});
+  const [deviceStatus, setDeviceStatus] = useState({});
 
   // Handle MQTT version messages
-  const handleMqttMessage = useCallback((message) => {
-    const topic = message.destinationName;
-    const deviceId = parseDeviceIdFromTopic(topic);
+  const handleMqttMessage = useCallback(
+    message => {
+      const topic = message.destinationName;
+      const deviceId = parseDeviceIdFromTopic(topic);
 
-    if (topic.endsWith('/version') && deviceId) {
-      const version = parseStringPayload(message.payloadString);
-      if (version) {
-        updateFirmwareVersion(deviceId, version);
-        console.log(`DevicePage: Updated firmware version for ${deviceId}: ${version}`);
+      if (topic.endsWith('/version') && deviceId) {
+        const version = parseStringPayload(message.payloadString);
+        if (version) {
+          updateFirmwareVersion(deviceId, version);
+          console.log(`DevicePage: Updated firmware version for ${deviceId}: ${version}`);
+        }
       }
-    }
 
-    // Handle tank_empty messages
-    if (topic.endsWith('/tank_empty') && deviceId) {
-      const payload = parseStringPayload(message.payloadString);
-      const isEmpty = payload === '1';
-      setTankStatus(prev => ({ ...prev, [deviceId]: isEmpty }));
-      console.log(`DevicePage: Tank status for ${deviceId}: ${isEmpty ? 'EMPTY' : 'NOT EMPTY'}`);
-    }
-  }, [updateFirmwareVersion]);
+      if (topic.endsWith('/status') && deviceId) {
+        setDeviceStatus(previousStatus => ({
+          ...previousStatus,
+          [deviceId]: parseDeviceStatus(message) ? 'online' : 'offline',
+        }));
+      }
+    },
+    [updateFirmwareVersion]
+  );
 
   // Subscribe to version topics for active devices
-  const subscribeToActiveDeviceVersions = useCallback((client) => {
-    if (!client || !client.isConnected()) return;
+  const subscribeToActiveDeviceVersions = useCallback(
+    client => {
+      if (!client || !client.isConnected()) return;
 
-    const activeDevices = devices.filter(d => d.active);
-    
-    activeDevices.forEach(device => {
-      if (!subscribedDevicesRef.current.has(device.id)) {
-        subscribeToDevice(client, device.id, DEVICE_TOPICS);
-        subscribedDevicesRef.current.add(device.id);
-      }
-    });
-  }, [devices]);
+      const activeDevices = devices.filter(d => d.active);
 
-  // Initialize MQTT connection for firmware version fetching
-  useEffect(() => {
-    const initializeMqtt = async () => {
-      const config = await SecureStore.getItemAsync('config');
-      if (!config) return;
-
-      const { mqttServer, mqttPort, mqttUser, mqttPassword } = JSON.parse(config);
-      if (!mqttServer) return;
-
-      const client = new Paho.Client(
-        mqttServer,
-        Number(mqttPort) || 8884,
-        `devicePage-${Math.random().toString(36).substr(2, 8)}`
-      );
-
-      client.onMessageArrived = handleMqttMessage;
-
-      client.onConnectionLost = (responseObject) => {
-        console.log('DevicePage: MQTT connection lost:', responseObject.errorMessage);
-      };
-
-      client.connect({
-        onSuccess: () => {
-          console.log('DevicePage: MQTT connected for firmware versions');
-          subscribeToActiveDeviceVersions(client);
-        },
-        onFailure: (err) => {
-          console.error('DevicePage: MQTT connection failed:', err);
-        },
-        useSSL: true,
-        userName: mqttUser,
-        password: mqttPassword,
-        reconnect: true,
-        keepAliveInterval: 30,
+      activeDevices.forEach(device => {
+        if (!subscribedDevicesRef.current.has(device.id)) {
+          subscribeToDevice(client, device.id, DEVICE_TOPICS);
+          subscribedDevicesRef.current.add(device.id);
+          setDeviceStatus(previousStatus => ({ ...previousStatus, [device.id]: 'offline' }));
+        }
       });
+    },
+    [devices]
+  );
 
-      setMqttClient(client);
-    };
+  useEffect(() => addMessageListener(handleMqttMessage), [addMessageListener, handleMqttMessage]);
 
-    if (!devicesLoading && devices.length > 0) {
-      initializeMqtt();
+  useEffect(() => {
+    if (wasMqttConnectedRef.current && !mqttConnected) {
+      subscribedDevicesRef.current.clear();
+      setDeviceStatus(previousStatus =>
+        Object.fromEntries(Object.keys(previousStatus).map(deviceId => [deviceId, 'offline']))
+      );
     }
 
-    return () => {
-      if (mqttClient && mqttClient.isConnected()) {
-        mqttClient.disconnect();
-      }
-    };
-  }, [devicesLoading, devices.length, handleMqttMessage]);
+    wasMqttConnectedRef.current = mqttConnected;
+  }, [mqttConnected]);
 
-  // Re-subscribe when devices change
   useEffect(() => {
-    if (mqttClient && mqttClient.isConnected()) {
+    if (mqttClient && mqttConnected) {
       subscribeToActiveDeviceVersions(mqttClient);
     }
-  }, [mqttClient, subscribeToActiveDeviceVersions]);
+  }, [mqttClient, mqttConnected, subscribeToActiveDeviceVersions]);
 
   // Enhanced fetch with Android compatibility
   const deviceFetch = async (url, options = {}) => {
@@ -225,18 +202,18 @@ const DevicePage = ({ navigation }) => {
     try {
       const response = await deviceFetch('http://192.168.4.1/');
       const html = await response.text();
-      
+
       // Extract device name from <h3> tag
       const deviceName = extractDeviceNameFromHtml(html);
       if (!deviceName) {
         console.log('DevicePage: Could not extract device name from HTML');
         return null;
       }
-      
+
       // Extract device ID from name
       const deviceId = extractDeviceId(deviceName);
       console.log('DevicePage: Extracted device ID:', deviceId);
-      
+
       return deviceId;
     } catch (error) {
       console.error('DevicePage: Error fetching device ID:', error);
@@ -389,10 +366,10 @@ const DevicePage = ({ navigation }) => {
   const handleWifiSelect = async wifi => {
     setSelectedWifi(wifi);
     setWifiSSID(wifi.ssid);
-    
+
     // Always hide password when form opens (security best practice)
     setShowWifiPassword(false);
-    
+
     // Check for saved credentials and pre-populate password
     const savedPassword = await getSavedWifiPassword(wifi.ssid);
     if (savedPassword) {
@@ -400,7 +377,7 @@ const DevicePage = ({ navigation }) => {
     } else {
       setWifiPassword(''); // Clear any previous password
     }
-    
+
     setShowWifiForm(true);
   };
 
@@ -503,7 +480,7 @@ const DevicePage = ({ navigation }) => {
           id: currentDeviceId,
           firmwareVersion: 'unknown', // Will be updated when device connects
         });
-        
+
         if (addResult.success) {
           console.log('DevicePage: Device saved successfully:', addResult.device);
         } else {
@@ -521,15 +498,18 @@ const DevicePage = ({ navigation }) => {
       // Save WiFi credentials for future auto-fill (secure storage)
       await saveWifiPassword(wifiSSID, wifiPassword);
 
-      Alert.alert('Success', `Device configured successfully! WiFi credentials saved for ${wifiSSID}`);
+      Alert.alert(
+        'Success',
+        `Device configured successfully! WiFi credentials saved for ${wifiSSID}`
+      );
       setShowWifiForm(false);
       setShowWifiModal(false);
       setShowAddDevice(true);
       setCurrentDeviceId(null);
-      
+
       // Refresh device list
       await refreshDevices();
-      
+
       console.log('device selected..........');
     } catch (error) {
       console.error('Error saving WiFi credentials:', error);
@@ -547,7 +527,7 @@ const DevicePage = ({ navigation }) => {
   const handleToggleDevice = async (deviceId, currentActive) => {
     const newActive = !currentActive;
     const success = await setDeviceActive(deviceId, newActive);
-    
+
     if (!success) {
       Alert.alert('Error', 'Failed to update device status');
     }
@@ -579,7 +559,7 @@ const DevicePage = ({ navigation }) => {
   /**
    * Start editing a device name
    */
-  const handleEditDeviceName = (deviceItem) => {
+  const handleEditDeviceName = deviceItem => {
     setEditingDevice(deviceItem);
     setEditedDeviceName(deviceItem.name);
   };
@@ -594,7 +574,7 @@ const DevicePage = ({ navigation }) => {
     }
 
     const result = await updateDevice(editingDevice.id, { name: editedDeviceName.trim() });
-    
+
     if (result.success) {
       setEditingDevice(null);
       setEditedDeviceName('');
@@ -611,12 +591,49 @@ const DevicePage = ({ navigation }) => {
     setEditedDeviceName('');
   };
 
+  const handleRefreshDevices = useCallback(() => {
+    refreshDevices();
+    if (!mqttConnected) {
+      reconnect();
+    }
+  }, [mqttConnected, reconnect, refreshDevices]);
+
+  const isDeviceOnline = deviceId => mqttConnected && deviceStatus[deviceId] === 'online';
+
+  const handleCalibrationPress = deviceId => {
+    if (!isDeviceOnline(deviceId)) {
+      Alert.alert('Device Offline', 'Calibration is available only while the device is online.');
+      return;
+    }
+
+    Alert.alert(
+      'Calibrate Motor',
+      'This will run the motor for 10 seconds. Ensure water is available and the gardening setup is fully complete before proceeding.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Proceed',
+          onPress: () => handleCalibrateDevice(deviceId),
+        },
+      ],
+      { cancelable: true }
+    );
+  };
+
   /**
    * Handle calibration request
    */
-  const handleCalibrateDevice = (deviceId) => {
+  const handleCalibrateDevice = deviceId => {
     if (!mqttClient || !mqttClient.isConnected()) {
       Alert.alert('Error', 'MQTT connection not available. Please try again.');
+      return;
+    }
+
+    if (!isDeviceOnline(deviceId)) {
+      Alert.alert('Device Offline', 'Calibration is available only while the device is online.');
       return;
     }
 
@@ -639,7 +656,10 @@ const DevicePage = ({ navigation }) => {
       // Clear calibrating state after 12 seconds (10s calibration + 2s buffer)
       setTimeout(() => {
         setCalibratingDeviceId(null);
-        Alert.alert('Calibration Complete', 'Device calibration finished. Current threshold has been auto-set.');
+        Alert.alert(
+          'Calibration Complete',
+          'Device calibration finished. Current threshold has been auto-set.'
+        );
       }, 12000);
     } catch (error) {
       console.error('DevicePage: Error sending calibration command:', error);
@@ -651,64 +671,69 @@ const DevicePage = ({ navigation }) => {
   /**
    * Render a single device item in the list
    */
-  const renderDeviceItem = (deviceItem) => (
-    <View key={deviceItem.id} style={styles.deviceItem}>
-      <View style={styles.deviceInfo}>
-        <View style={styles.deviceNameRow}>
-          <MaterialIcons 
-            name='device-hub' 
-            size={20} 
-            color={deviceItem.active ? '#4CAF50' : '#9CA3AF'} 
-          />
-          <Text style={[
-            styles.deviceName, 
-            !deviceItem.active && styles.deviceNameInactive
-          ]}>
-            {deviceItem.name}
+  const renderDeviceItem = deviceItem => {
+    const deviceOnline = isDeviceOnline(deviceItem.id);
+
+    return (
+      <View key={deviceItem.id} style={styles.deviceItem}>
+        <View style={styles.deviceInfo}>
+          <View style={styles.deviceNameRow}>
+            <MaterialIcons
+              name='device-hub'
+              size={20}
+              color={deviceItem.active ? '#4CAF50' : '#9CA3AF'}
+            />
+            <Text style={[styles.deviceName, !deviceItem.active && styles.deviceNameInactive]}>
+              {deviceItem.name}
+            </Text>
+            <TouchableOpacity
+              style={styles.editNameButton}
+              onPress={() => handleEditDeviceName(deviceItem)}
+            >
+              <MaterialIcons name='edit' size={16} color='#5E72E4' />
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.deviceVersion}>
+            Firmware: {deviceItem.firmwareVersion || 'unknown'}
           </Text>
+        </View>
+
+        <View style={styles.deviceActions}>
           <TouchableOpacity
-            style={styles.editNameButton}
-            onPress={() => handleEditDeviceName(deviceItem)}
+            style={[
+              styles.calibrateButton,
+              (!deviceItem.active || !deviceOnline) && styles.calibrateButtonDisabled,
+              calibratingDeviceId === deviceItem.id && styles.calibrateButtonCalibrating,
+            ]}
+            onPress={() => handleCalibrationPress(deviceItem.id)}
+            disabled={!deviceItem.active || !deviceOnline || calibratingDeviceId === deviceItem.id}
           >
-            <MaterialIcons name='edit' size={16} color='#5E72E4' />
+            {calibratingDeviceId === deviceItem.id ? (
+              <ActivityIndicator color='white' size='small' />
+            ) : (
+              <MaterialIcons
+                name='settings'
+                size={22}
+                color={deviceItem.active && deviceOnline ? '#FFC107' : '#BDBDBD'}
+              />
+            )}
+          </TouchableOpacity>
+          <Switch
+            value={deviceItem.active}
+            onValueChange={() => handleToggleDevice(deviceItem.id, deviceItem.active)}
+            trackColor={{ false: '#E5E7EB', true: '#86EFAC' }}
+            thumbColor={deviceItem.active ? '#4CAF50' : '#9CA3AF'}
+          />
+          <TouchableOpacity
+            style={styles.deleteButton}
+            onPress={() => handleDeleteDevice(deviceItem.id, deviceItem.name)}
+          >
+            <MaterialIcons name='delete-outline' size={22} color='#F44336' />
           </TouchableOpacity>
         </View>
-        <Text style={styles.deviceVersion}>
-          Firmware: {deviceItem.firmwareVersion || 'unknown'}
-        </Text>
       </View>
-      
-      <View style={styles.deviceActions}>
-        <TouchableOpacity
-          style={[
-            styles.calibrateButton,
-            !deviceItem.active && styles.calibrateButtonDisabled,
-            calibratingDeviceId === deviceItem.id && styles.calibrateButtonCalibrating
-          ]}
-          onPress={() => handleCalibrateDevice(deviceItem.id)}
-          disabled={!deviceItem.active || calibratingDeviceId === deviceItem.id}
-        >
-          {calibratingDeviceId === deviceItem.id ? (
-            <ActivityIndicator color='white' size='small' />
-          ) : (
-            <MaterialIcons name='settings' size={22} color={deviceItem.active ? '#FFC107' : '#BDBDBD'} />
-          )}
-        </TouchableOpacity>
-        <Switch
-          value={deviceItem.active}
-          onValueChange={() => handleToggleDevice(deviceItem.id, deviceItem.active)}
-          trackColor={{ false: '#E5E7EB', true: '#86EFAC' }}
-          thumbColor={deviceItem.active ? '#4CAF50' : '#9CA3AF'}
-        />
-        <TouchableOpacity
-          style={styles.deleteButton}
-          onPress={() => handleDeleteDevice(deviceItem.id, deviceItem.name)}
-        >
-          <MaterialIcons name='delete-outline' size={22} color='#F44336' />
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -724,60 +749,60 @@ const DevicePage = ({ navigation }) => {
           keyboardShouldPersistTaps='handled'
           keyboardDismissMode='interactive'
         >
-          <View style={styles.signupContainer}>
-            <Text style={styles.signupText}>BeeGreen</Text>
-
-            {showAddDevice && (
-              <TouchableOpacity
-                style={[styles.signupButton, { backgroundColor: '#4CAF50', marginTop: 20 }]}
-                onPress={scanWifiNetworks}
-                activeOpacity={0.8}
-                disabled={isScanning}
-              >
-                {isScanning ? (
-                  <ActivityIndicator color='white' />
-                ) : (
-                  <Text style={styles.signupButtonText}>ADD DEVICE</Text>
-                )}
-              </TouchableOpacity>
-            )}
-          </View>
-
           {/* Device List Section */}
           <View style={styles.deviceListContainer}>
             <View style={styles.deviceListHeader}>
               <View style={styles.deviceListTitleRow}>
                 <Text style={styles.deviceListTitle}>My Devices</Text>
-                <TankIndicator
-                  isEmpty={devices.length > 0 ? tankStatus[devices.find(d => d.active)?.id] : null}
-                  showLabel={true}
-                  size="small"
-                />
               </View>
-              <TouchableOpacity onPress={refreshDevices} disabled={devicesLoading}>
+              <TouchableOpacity
+                accessibilityHint={
+                  mqttConnected
+                    ? 'Refreshes the device list'
+                    : 'Refreshes the device list and reconnects MQTT'
+                }
+                accessibilityLabel={
+                  mqttConnected ? 'Refresh devices' : 'Refresh devices and reconnect MQTT'
+                }
+                accessibilityRole='button'
+                onPress={handleRefreshDevices}
+                disabled={devicesLoading}
+              >
                 {devicesLoading ? (
                   <ActivityIndicator size='small' color='#4CAF50' />
                 ) : (
                   <MaterialIcons name='refresh' size={24} color='#4CAF50' />
                 )}
               </TouchableOpacity>
+              {showAddDevice && (
+                <TouchableOpacity
+                  style={[styles.signupButton, styles.addDeviceButton]}
+                  onPress={scanWifiNetworks}
+                  activeOpacity={0.8}
+                  disabled={isScanning}
+                >
+                  {isScanning ? (
+                    <ActivityIndicator color='white' />
+                  ) : (
+                    <Text style={styles.signupButtonText}>ADD DEVICE</Text>
+                  )}
+                </TouchableOpacity>
+              )}
             </View>
-            
+
             {devicesLoading ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size='small' color='#4CAF50' />
                 <Text style={styles.loadingText}>Loading devices...</Text>
               </View>
             ) : devices.length > 0 ? (
-              <View style={styles.deviceList}>
-                {devices.map(renderDeviceItem)}
-              </View>
+              <View style={styles.deviceList}>{devices.map(renderDeviceItem)}</View>
             ) : (
               <View style={styles.emptyContainer}>
                 <MaterialIcons name='devices' size={48} color='rgba(255,255,255,0.3)' />
                 <Text style={styles.emptyText}>No devices added yet</Text>
                 <Text style={styles.emptySubtext}>
-                  Tap "ADD DEVICE" to configure your first BeeGreen device
+                  Tap ADD DEVICE to configure your first BeeGreen device
                 </Text>
               </View>
             )}
@@ -913,7 +938,7 @@ const DevicePage = ({ navigation }) => {
         <View style={styles.modalContainer}>
           <View style={styles.editNameModalContent}>
             <Text style={styles.modalTitle}>Edit Device Name</Text>
-            
+
             <TextInput
               style={styles.editNameInput}
               placeholder='Enter device name'
@@ -934,7 +959,7 @@ const DevicePage = ({ navigation }) => {
               <TouchableOpacity
                 style={[
                   styles.editNameSaveButton,
-                  !editedDeviceName.trim() && styles.editNameSaveButtonDisabled
+                  !editedDeviceName.trim() && styles.editNameSaveButtonDisabled,
                 ]}
                 onPress={handleSaveDeviceName}
                 disabled={!editedDeviceName.trim()}
@@ -950,6 +975,10 @@ const DevicePage = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
+  addDeviceButton: {
+    backgroundColor: '#4CAF50',
+    marginBottom: 10,
+  },
   calibrateButton: {
     alignItems: 'center',
     backgroundColor: 'transparent',
@@ -961,13 +990,13 @@ const styles = StyleSheet.create({
     marginRight: 8,
     width: 36,
   },
-  calibrateButtonDisabled: {
-    borderColor: '#BDBDBD',
-    opacity: 0.5,
-  },
   calibrateButtonCalibrating: {
     borderColor: '#FFC107',
     opacity: 1,
+  },
+  calibrateButtonDisabled: {
+    borderColor: '#BDBDBD',
+    opacity: 0.5,
   },
   closeButton: {
     alignItems: 'center',
@@ -1011,24 +1040,24 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     marginHorizontal: 20,
     marginTop: 20,
+    maxWidth: 400,
     padding: 20,
     width: '90%',
-    maxWidth: 400,
   },
   deviceListHeader: {
     flexDirection: 'column',
-    marginBottom: 10,
-  },
-  deviceListTitleRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     marginBottom: 10,
   },
   deviceListTitle: {
     color: 'white',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  deviceListTitleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
   },
   deviceName: {
     color: '#333',
@@ -1053,24 +1082,6 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     padding: 4,
   },
-  editNameModalContent: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 24,
-    width: '80%',
-    maxWidth: 320,
-  },
-  editNameInput: {
-    backgroundColor: '#F7FAFC',
-    borderColor: '#E2E8F0',
-    borderRadius: 8,
-    borderWidth: 1,
-    color: '#333',
-    fontSize: 16,
-    marginTop: 16,
-    marginBottom: 20,
-    padding: 12,
-  },
   editNameButtonRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1089,6 +1100,24 @@ const styles = StyleSheet.create({
     color: '#4A5568',
     fontSize: 14,
     fontWeight: '600',
+  },
+  editNameInput: {
+    backgroundColor: '#F7FAFC',
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+    borderWidth: 1,
+    color: '#333',
+    fontSize: 16,
+    marginBottom: 20,
+    marginTop: 16,
+    padding: 12,
+  },
+  editNameModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    maxWidth: 320,
+    padding: 24,
+    width: '80%',
   },
   editNameSaveButton: {
     alignItems: 'center',
@@ -1183,15 +1212,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     textAlign: 'center',
   },
-  rescanButton: {
-    alignItems: 'center',
-    borderColor: '#4CAF50',
-    borderRadius: 20,
-    borderWidth: 1,
-    height: 36,
-    justifyContent: 'center',
-    width: 36,
-  },
   noNetworksText: {
     color: '#777',
     padding: 10,
@@ -1207,6 +1227,15 @@ const styles = StyleSheet.create({
   passwordInput: {
     flex: 1,
     paddingRight: 70,
+  },
+  rescanButton: {
+    alignItems: 'center',
+    borderColor: '#4CAF50',
+    borderRadius: 20,
+    borderWidth: 1,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
   },
   scrollContent: {
     alignItems: 'center',
@@ -1235,26 +1264,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     letterSpacing: 0.5,
-  },
-  signupContainer: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 15,
-    elevation: 5,
-    marginVertical: 20,
-    maxWidth: 400,
-    padding: 30,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    width: '90%',
-  },
-  signupText: {
-    color: 'white',
-    fontSize: 28,
-    fontWeight: 'bold',
-    marginBottom: 5,
   },
   subtitle: {
     color: 'rgba(255, 255, 255, 0.8)',

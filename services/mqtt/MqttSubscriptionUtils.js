@@ -1,20 +1,20 @@
 /**
  * MqttSubscriptionUtils - Shared MQTT subscription utilities
- * 
+ *
  * Provides reusable functions for MQTT topic management:
  * - Subscribe/unsubscribe to device-specific topics
  * - Parse device ID from topic strings
  * - Parse device status from payloads
- * 
+ *
  * Used by SchedulerPage and ControlPage for per-device subscriptions
  * without using wildcards (for ACL-enabled MQTT brokers).
- * 
+ *
  * Usage:
  * import { subscribeToDevice, unsubscribeFromDevice, parseDeviceStatus } from '../services/mqtt';
- * 
+ *
  * // Subscribe to a device's topics
  * subscribeToDevice(mqttClient, 'deviceId', ['status', 'pump_status']);
- * 
+ *
  * // Parse incoming message
  * const isOnline = parseDeviceStatus(message);
  */
@@ -34,19 +34,12 @@ export const SCHEDULER_TOPICS = [
 /**
  * Topic suffixes for controller page
  */
-export const CONTROLLER_TOPICS = [
-  'status',
-  'pump_status',
-  'tank_empty',
-];
+export const CONTROLLER_TOPICS = ['status', 'pump_status', 'tank_empty'];
 
 /**
- * Topic suffixes for device page (version and tank status)
+ * Topic suffixes for device page (version and online status)
  */
-export const DEVICE_TOPICS = [
-  'version',
-  'tank_empty',
-];
+export const DEVICE_TOPICS = ['version', 'status'];
 
 /**
  * Subscribe to topics for a single device
@@ -152,16 +145,16 @@ export const unsubscribeFromDevices = (client, devices, topicSuffixes) => {
  * @param {string} topic - Full topic string
  * @returns {string|null} - Device ID or null if invalid format
  */
-export const parseDeviceIdFromTopic = (topic) => {
+export const parseDeviceIdFromTopic = topic => {
   if (!topic || typeof topic !== 'string') {
     return null;
   }
-  
+
   const parts = topic.split('/');
   if (parts.length < 2) {
     return null;
   }
-  
+
   return parts[0] || null;
 };
 
@@ -171,16 +164,16 @@ export const parseDeviceIdFromTopic = (topic) => {
  * @param {string} topic - Full topic string
  * @returns {string|null} - Topic suffix or null if invalid format
  */
-export const parseTopicSuffix = (topic) => {
+export const parseTopicSuffix = topic => {
   if (!topic || typeof topic !== 'string') {
     return null;
   }
-  
+
   const parts = topic.split('/');
   if (parts.length < 2) {
     return null;
   }
-  
+
   return parts.slice(1).join('/') || null;
 };
 
@@ -191,19 +184,19 @@ export const parseTopicSuffix = (topic) => {
  * @param {Object} message - MQTT message object with payloadString property
  * @returns {boolean} - True if online, false if offline
  */
-export const parseDeviceStatus = (message) => {
+export const parseDeviceStatus = message => {
   if (!message) {
     return false;
   }
 
   const payloadStr = (message.payloadString || '').trim();
-  
+
   // Use parseStringPayload for JSON format {"payload":"online","timestamp":"..."}
   const extracted = parseStringPayload(payloadStr);
   if (extracted) {
     return extracted.toLowerCase() === 'online';
   }
-  
+
   // Plain text fallback
   return payloadStr.toLowerCase() === 'online';
 };
@@ -213,7 +206,7 @@ export const parseDeviceStatus = (message) => {
  * @param {boolean} isOnline - Online status
  * @returns {string} - 'online' or 'offline'
  */
-export const getStatusString = (isOnline) => {
+export const getStatusString = isOnline => {
   return isOnline ? 'online' : 'offline';
 };
 

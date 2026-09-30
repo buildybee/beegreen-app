@@ -3,9 +3,20 @@ import { View, StyleSheet, SafeAreaView, Text, TouchableOpacity, Alert } from 'r
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../services/auth';
 
-const AccountInfoPage = ({ navigation }) => {
+const AccountInfoPage = () => {
   // Get config and logout from auth context
   const { config, logout } = useAuth();
+
+  /**
+   * Perform logout - clears auth state and navigates to login automatically
+   */
+  const handleLogout = useCallback(async () => {
+    const success = await logout();
+    if (!success) {
+      Alert.alert('Error', 'Failed to logout. Please try again.');
+    }
+    // Navigation to login page happens automatically via AuthContext
+  }, [logout]);
 
   /**
    * Show confirmation dialog before logout
@@ -27,18 +38,7 @@ const AccountInfoPage = ({ navigation }) => {
       ],
       { cancelable: true }
     );
-  }, []);
-
-  /**
-   * Perform logout - clears auth state and navigates to login automatically
-   */
-  const handleLogout = useCallback(async () => {
-    const success = await logout();
-    if (!success) {
-      Alert.alert('Error', 'Failed to logout. Please try again.');
-    }
-    // Navigation to login page happens automatically via AuthContext
-  }, [logout]);
+  }, [handleLogout]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -47,37 +47,23 @@ const AccountInfoPage = ({ navigation }) => {
           {/* Account Info Card */}
           <View style={styles.infoCard}>
             <Text style={styles.cardTitle}>Account Information</Text>
-            
+
             <View style={styles.infoRow}>
               <MaterialIcons name='person' size={20} color='#2E8B57' />
               <Text style={styles.infoLabel}>MQTT User:</Text>
               <Text style={styles.infoValue}>{config.mqttUser}</Text>
             </View>
-            
+
             <View style={styles.infoRow}>
               <MaterialIcons name='dns' size={20} color='#2E8B57' />
               <Text style={styles.infoLabel}>Server:</Text>
               <Text style={styles.infoValue}>{config.mqttServer}</Text>
             </View>
-            
-            <View style={styles.infoRow}>
-              <MaterialIcons name='settings-ethernet' size={20} color='#2E8B57' />
-              <Text style={styles.infoLabel}>Port:</Text>
-              <Text style={styles.infoValue}>{config.mqttPort}</Text>
-            </View>
-
-            {config.wifiSSID && (
-              <View style={styles.infoRow}>
-                <MaterialIcons name='wifi' size={20} color='#2E8B57' />
-                <Text style={styles.infoLabel}>WiFi:</Text>
-                <Text style={styles.infoValue}>{config.wifiSSID}</Text>
-              </View>
-            )}
           </View>
 
           {/* Logout Button */}
-          <TouchableOpacity 
-            style={styles.logoutButton} 
+          <TouchableOpacity
+            style={styles.logoutButton}
             onPress={handleLogoutPress}
             activeOpacity={0.8}
           >
