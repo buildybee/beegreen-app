@@ -18,7 +18,7 @@ const Drawer = createDrawerNavigator();
  */
 const LoadingScreen = () => (
   <View style={styles.loadingContainer}>
-    <ActivityIndicator size="large" color="#2E8B57" />
+    <ActivityIndicator size='large' color='#2E8B57' />
   </View>
 );
 
@@ -35,7 +35,7 @@ const AppNavigator = () => {
   }
 
   // Determine initial route based on authentication status
-  const initialRoute = isAuthenticated ? 'Device Add' : 'Login';
+  const initialRoute = isAuthenticated ? 'Device' : 'Login';
 
   return (
     <NavigationContainer>
@@ -43,7 +43,7 @@ const AppNavigator = () => {
         {isAuthenticated ? (
           <>
             <Drawer.Screen
-              name='Device Add'
+              name='Device'
               component={DevicePage}
               options={{
                 drawerIcon: ({ color, size }) => (
@@ -98,10 +98,10 @@ const AppNavigator = () => {
 
 const styles = StyleSheet.create({
   loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#2E8B57',
+    flex: 1,
+    justifyContent: 'center',
   },
 });
 

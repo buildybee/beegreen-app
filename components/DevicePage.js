@@ -24,11 +24,11 @@ import { useDevices, extractDeviceId, extractDeviceNameFromHtml } from '../servi
 import {
   subscribeToDevice,
   parseDeviceIdFromTopic,
+  parseDeviceStatus,
   DEVICE_TOPICS,
   useMqtt,
 } from '../services/mqtt';
 import { parseStringPayload } from './tools';
-import TankIndicator from './TankIndicator';
 
 const DevicePage = ({ navigation }) => {
   // Get config from auth context - no need for useEffect to load from SecureStore
@@ -88,8 +88,7 @@ const DevicePage = ({ navigation }) => {
   // Calibration state
   const [calibratingDeviceId, setCalibratingDeviceId] = useState(null);
 
-  // Tank status per device (deviceId -> boolean or null)
-  const [tankStatus, setTankStatus] = useState({});
+  const [deviceStatus, setDeviceStatus] = useState({});
 
   // Handle MQTT version messages
   const handleMqttMessage = useCallback(
@@ -105,12 +104,11 @@ const DevicePage = ({ navigation }) => {
         }
       }
 
-      // Handle tank_empty messages
-      if (topic.endsWith('/tank_empty') && deviceId) {
-        const payload = parseStringPayload(message.payloadString);
-        const isEmpty = payload === '1';
-        setTankStatus(prev => ({ ...prev, [deviceId]: isEmpty }));
-        console.log(`DevicePage: Tank status for ${deviceId}: ${isEmpty ? 'EMPTY' : 'NOT EMPTY'}`);
+      if (topic.endsWith('/status') && deviceId) {
+        setDeviceStatus(previousStatus => ({
+          ...previousStatus,
+          [deviceId]: parseDeviceStatus(message) ? 'online' : 'offline',
+        }));
       }
     },
     [updateFirmwareVersion]
@@ -127,6 +125,7 @@ const DevicePage = ({ navigation }) => {
         if (!subscribedDevicesRef.current.has(device.id)) {
           subscribeToDevice(client, device.id, DEVICE_TOPICS);
           subscribedDevicesRef.current.add(device.id);
+          setDeviceStatus(previousStatus => ({ ...previousStatus, [device.id]: 'offline' }));
         }
       });
     },
@@ -138,6 +137,9 @@ const DevicePage = ({ navigation }) => {
   useEffect(() => {
     if (wasMqttConnectedRef.current && !mqttConnected) {
       subscribedDevicesRef.current.clear();
+      setDeviceStatus(previousStatus =>
+        Object.fromEntries(Object.keys(previousStatus).map(deviceId => [deviceId, 'offline']))
+      );
     }
 
     wasMqttConnectedRef.current = mqttConnected;
@@ -596,7 +598,14 @@ const DevicePage = ({ navigation }) => {
     }
   }, [mqttConnected, reconnect, refreshDevices]);
 
+  const isDeviceOnline = deviceId => mqttConnected && deviceStatus[deviceId] === 'online';
+
   const handleCalibrationPress = deviceId => {
+    if (!isDeviceOnline(deviceId)) {
+      Alert.alert('Device Offline', 'Calibration is available only while the device is online.');
+      return;
+    }
+
     Alert.alert(
       'Calibrate Motor',
       'This will run the motor for 10 seconds. Ensure water is available and the gardening setup is fully complete before proceeding.',
@@ -620,6 +629,11 @@ const DevicePage = ({ navigation }) => {
   const handleCalibrateDevice = deviceId => {
     if (!mqttClient || !mqttClient.isConnected()) {
       Alert.alert('Error', 'MQTT connection not available. Please try again.');
+      return;
+    }
+
+    if (!isDeviceOnline(deviceId)) {
+      Alert.alert('Device Offline', 'Calibration is available only while the device is online.');
       return;
     }
 
@@ -657,65 +671,69 @@ const DevicePage = ({ navigation }) => {
   /**
    * Render a single device item in the list
    */
-  const renderDeviceItem = deviceItem => (
-    <View key={deviceItem.id} style={styles.deviceItem}>
-      <View style={styles.deviceInfo}>
-        <View style={styles.deviceNameRow}>
-          <MaterialIcons
-            name='device-hub'
-            size={20}
-            color={deviceItem.active ? '#4CAF50' : '#9CA3AF'}
-          />
-          <Text style={[styles.deviceName, !deviceItem.active && styles.deviceNameInactive]}>
-            {deviceItem.name}
+  const renderDeviceItem = deviceItem => {
+    const deviceOnline = isDeviceOnline(deviceItem.id);
+
+    return (
+      <View key={deviceItem.id} style={styles.deviceItem}>
+        <View style={styles.deviceInfo}>
+          <View style={styles.deviceNameRow}>
+            <MaterialIcons
+              name='device-hub'
+              size={20}
+              color={deviceItem.active ? '#4CAF50' : '#9CA3AF'}
+            />
+            <Text style={[styles.deviceName, !deviceItem.active && styles.deviceNameInactive]}>
+              {deviceItem.name}
+            </Text>
+            <TouchableOpacity
+              style={styles.editNameButton}
+              onPress={() => handleEditDeviceName(deviceItem)}
+            >
+              <MaterialIcons name='edit' size={16} color='#5E72E4' />
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.deviceVersion}>
+            Firmware: {deviceItem.firmwareVersion || 'unknown'}
           </Text>
+        </View>
+
+        <View style={styles.deviceActions}>
           <TouchableOpacity
-            style={styles.editNameButton}
-            onPress={() => handleEditDeviceName(deviceItem)}
+            style={[
+              styles.calibrateButton,
+              (!deviceItem.active || !deviceOnline) && styles.calibrateButtonDisabled,
+              calibratingDeviceId === deviceItem.id && styles.calibrateButtonCalibrating,
+            ]}
+            onPress={() => handleCalibrationPress(deviceItem.id)}
+            disabled={!deviceItem.active || !deviceOnline || calibratingDeviceId === deviceItem.id}
           >
-            <MaterialIcons name='edit' size={16} color='#5E72E4' />
+            {calibratingDeviceId === deviceItem.id ? (
+              <ActivityIndicator color='white' size='small' />
+            ) : (
+              <MaterialIcons
+                name='settings'
+                size={22}
+                color={deviceItem.active && deviceOnline ? '#FFC107' : '#BDBDBD'}
+              />
+            )}
+          </TouchableOpacity>
+          <Switch
+            value={deviceItem.active}
+            onValueChange={() => handleToggleDevice(deviceItem.id, deviceItem.active)}
+            trackColor={{ false: '#E5E7EB', true: '#86EFAC' }}
+            thumbColor={deviceItem.active ? '#4CAF50' : '#9CA3AF'}
+          />
+          <TouchableOpacity
+            style={styles.deleteButton}
+            onPress={() => handleDeleteDevice(deviceItem.id, deviceItem.name)}
+          >
+            <MaterialIcons name='delete-outline' size={22} color='#F44336' />
           </TouchableOpacity>
         </View>
-        <Text style={styles.deviceVersion}>
-          Firmware: {deviceItem.firmwareVersion || 'unknown'}
-        </Text>
       </View>
-
-      <View style={styles.deviceActions}>
-        <TouchableOpacity
-          style={[
-            styles.calibrateButton,
-            !deviceItem.active && styles.calibrateButtonDisabled,
-            calibratingDeviceId === deviceItem.id && styles.calibrateButtonCalibrating,
-          ]}
-          onPress={() => handleCalibrationPress(deviceItem.id)}
-          disabled={!deviceItem.active || calibratingDeviceId === deviceItem.id}
-        >
-          {calibratingDeviceId === deviceItem.id ? (
-            <ActivityIndicator color='white' size='small' />
-          ) : (
-            <MaterialIcons
-              name='settings'
-              size={22}
-              color={deviceItem.active ? '#FFC107' : '#BDBDBD'}
-            />
-          )}
-        </TouchableOpacity>
-        <Switch
-          value={deviceItem.active}
-          onValueChange={() => handleToggleDevice(deviceItem.id, deviceItem.active)}
-          trackColor={{ false: '#E5E7EB', true: '#86EFAC' }}
-          thumbColor={deviceItem.active ? '#4CAF50' : '#9CA3AF'}
-        />
-        <TouchableOpacity
-          style={styles.deleteButton}
-          onPress={() => handleDeleteDevice(deviceItem.id, deviceItem.name)}
-        >
-          <MaterialIcons name='delete-outline' size={22} color='#F44336' />
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -731,35 +749,11 @@ const DevicePage = ({ navigation }) => {
           keyboardShouldPersistTaps='handled'
           keyboardDismissMode='interactive'
         >
-          <View style={styles.signupContainer}>
-            <Text style={styles.signupText}>BeeGreen</Text>
-
-            {showAddDevice && (
-              <TouchableOpacity
-                style={[styles.signupButton, { backgroundColor: '#4CAF50', marginTop: 20 }]}
-                onPress={scanWifiNetworks}
-                activeOpacity={0.8}
-                disabled={isScanning}
-              >
-                {isScanning ? (
-                  <ActivityIndicator color='white' />
-                ) : (
-                  <Text style={styles.signupButtonText}>ADD DEVICE</Text>
-                )}
-              </TouchableOpacity>
-            )}
-          </View>
-
           {/* Device List Section */}
           <View style={styles.deviceListContainer}>
             <View style={styles.deviceListHeader}>
               <View style={styles.deviceListTitleRow}>
                 <Text style={styles.deviceListTitle}>My Devices</Text>
-                <TankIndicator
-                  isEmpty={devices.length > 0 ? tankStatus[devices.find(d => d.active)?.id] : null}
-                  showLabel={true}
-                  size='small'
-                />
               </View>
               <TouchableOpacity
                 accessibilityHint={
@@ -780,6 +774,20 @@ const DevicePage = ({ navigation }) => {
                   <MaterialIcons name='refresh' size={24} color='#4CAF50' />
                 )}
               </TouchableOpacity>
+              {showAddDevice && (
+                <TouchableOpacity
+                  style={[styles.signupButton, styles.addDeviceButton]}
+                  onPress={scanWifiNetworks}
+                  activeOpacity={0.8}
+                  disabled={isScanning}
+                >
+                  {isScanning ? (
+                    <ActivityIndicator color='white' />
+                  ) : (
+                    <Text style={styles.signupButtonText}>ADD DEVICE</Text>
+                  )}
+                </TouchableOpacity>
+              )}
             </View>
 
             {devicesLoading ? (
@@ -967,6 +975,10 @@ const DevicePage = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
+  addDeviceButton: {
+    backgroundColor: '#4CAF50',
+    marginBottom: 10,
+  },
   calibrateButton: {
     alignItems: 'center',
     backgroundColor: 'transparent',
@@ -1252,26 +1264,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     letterSpacing: 0.5,
-  },
-  signupContainer: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 15,
-    elevation: 5,
-    marginVertical: 20,
-    maxWidth: 400,
-    padding: 30,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    width: '90%',
-  },
-  signupText: {
-    color: 'white',
-    fontSize: 28,
-    fontWeight: 'bold',
-    marginBottom: 5,
   },
   subtitle: {
     color: 'rgba(255, 255, 255, 0.8)',
